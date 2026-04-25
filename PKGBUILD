@@ -11,8 +11,8 @@ _srcname=linux-${_pkgver}
 pkgrel=1
 archrel=1
 pkgdesc='Linux kernel for T2 Macs'
-_srctag=v${_pkgver%.*}-${_pkgver##*.}
-url="https://github.com/archlinux/linux/commits/$_srctag"
+_srctag=v${_pkgver}
+url="https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tag/?h=$_srctag"
 arch=(x86_64)
 license=(GPL2)
 makedepends=(
@@ -36,10 +36,10 @@ makedepends=(
 conflicts=('apple-gmux-t2-dkms-git')
 replaces=('apple-gmux-t2-dkms-git')
 options=('!strip')
-_srcname="linux-${_pkgver}-arch${archrel}"
+_srcname="linux-${_pkgver}"
 T2_PATCH_HASH=76589a89790c33c137d173f2d98b6096cd16b132
 source=(
-  https://github.com/archlinux/linux/archive/refs/tags/v${_pkgver}-arch${archrel}.tar.gz
+  https://cdn.kernel.org/pub/linux/kernel/v${_pkgver%%.*}.x/linux-${_pkgver}.tar.xz
   config  # the main kernel config file
   6002-amdgpu-imac20-display-debug.patch
 
