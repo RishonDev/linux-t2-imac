@@ -42,7 +42,7 @@ source=(
   https://cdn.kernel.org/pub/linux/kernel/v${_pkgver%%.*}.x/linux-${_pkgver}.tar.xz
   config  # the main kernel config file
   6001-amdgpu-imac20-display-debug.patch
-  6002-amdgpu-imac20-seamless-boot-quirk.patch
+  6002-amdgpu-imac20-panel-mode-quirk.patch
 
   # t2linux Patches
   patches::git+https://github.com/t2linux/linux-t2-patches
