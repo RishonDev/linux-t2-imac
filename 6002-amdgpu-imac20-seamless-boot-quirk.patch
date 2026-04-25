@@ -1,0 +1,111 @@
+diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
+index 9296d205b..0392267c1 100644
+--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
++++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
+@@ -1873,6 +1873,7 @@ static int amdgpu_dm_init(struct amdgpu_device *adev)
+ {
+ 	struct dc_init_data init_data;
+ 	struct dc_callback_init init_params;
++	bool imac20_5k;
+ 	int r;
+ 
+ 	adev->dm.ddev = adev_to_drm(adev);
+@@ -1968,11 +1969,16 @@ static int amdgpu_dm_init(struct amdgpu_device *adev)
+ 		init_data.flags.allow_lttpr_non_transparent_mode.bits.DP2_0 = true;
+ 
+ 	init_data.flags.seamless_boot_edp_requested = false;
++	imac20_5k = amdgpu_dm_is_imac20_5k();
+ 
+-	if (amdgpu_device_seamless_boot_supported(adev)) {
++	if (amdgpu_device_seamless_boot_supported(adev) || imac20_5k) {
+ 		init_data.flags.seamless_boot_edp_requested = true;
+ 		init_data.flags.allow_seamless_boot_optimization = true;
+-		drm_dbg(adev->dm.ddev, "Seamless boot requested\n");
++		if (imac20_5k)
++			init_data.flags.allow_seamless_boot_non_preferred_tg = true;
++		drm_info(adev->dm.ddev,
++			 "Seamless boot requested%s\n",
++			 imac20_5k ? " for Apple iMac20 5K quirk" : "");
+ 	}
+ 
+ 	init_data.flags.enable_mipi_converter_optimization = true;
+diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.h b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.h
+index d15812d51..8192de303 100644
+--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.h
++++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.h
+@@ -1136,5 +1136,6 @@ void hdmi_cec_unset_edid(struct amdgpu_dm_connector *aconnector);
+ int amdgpu_dm_initialize_hdmi_connector(struct amdgpu_dm_connector *aconnector);
+ 
+ void retrieve_dmi_info(struct amdgpu_display_manager *dm);
++bool amdgpu_dm_is_imac20_5k(void);
+ 
+ #endif /* __AMDGPU_DM_H__ */
+diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_quirks.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_quirks.c
+index 1da07ebf9..da077c510 100644
+--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_quirks.c
++++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_quirks.c
+@@ -39,6 +39,27 @@ static struct amdgpu_dm_quirks quirk_entries = {
+ 	.support_edp0_on_dp1 = false
+ };
+ 
++static const struct dmi_system_id imac20_5k_dmi_table[] = {
++	{
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Apple Inc."),
++			DMI_MATCH(DMI_PRODUCT_NAME, "iMac20,1"),
++		},
++	},
++	{
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Apple Inc."),
++			DMI_MATCH(DMI_PRODUCT_NAME, "iMac20,2"),
++		},
++	},
++	{}
++};
++
++bool amdgpu_dm_is_imac20_5k(void)
++{
++	return dmi_check_system(imac20_5k_dmi_table);
++}
++
+ static int edp0_on_dp1_callback(const struct dmi_system_id *id)
+ {
+ 	quirk_entries.support_edp0_on_dp1 = true;
+diff --git a/drivers/gpu/drm/amd/display/dc/core/dc.c b/drivers/gpu/drm/amd/display/dc/core/dc.c
+index c30bd5855..e6e2ffdba 100644
+--- a/drivers/gpu/drm/amd/display/dc/core/dc.c
++++ b/drivers/gpu/drm/amd/display/dc/core/dc.c
+@@ -1887,10 +1887,16 @@ bool dc_validate_boot_timing(const struct dc *dc,
+ 	}
+ 
+ 	if (tg_inst != link->link_enc->preferred_engine) {
+-		DC_LOG_DEBUG("boot timing validation failed due to non-preferred timing generator\n");
+-		return dc_log_boot_timing_failure(dc, link, sink, crtc_timing,
+-						 tg_inst, enc_inst,
+-						 "non-preferred-timing-generator");
++		if (!dc->config.allow_seamless_boot_non_preferred_tg) {
++			DC_LOG_DEBUG("boot timing validation failed due to non-preferred timing generator\n");
++			return dc_log_boot_timing_failure(dc, link, sink, crtc_timing,
++							 tg_inst, enc_inst,
++							 "non-preferred-timing-generator");
++		}
++		DC_LOG_INFO("boot timing validation allowing non-preferred timing generator: link=%d signal=%d tg=%u pref_tg=%d enc=%u\n",
++			    link->link_index, link->connector_signal, tg_inst,
++			    link->link_enc ? link->link_enc->preferred_engine : -1,
++			    enc_inst);
+ 	}
+ 
+ 	tg = dc->res_pool->timing_generators[tg_inst];
+diff --git a/drivers/gpu/drm/amd/display/dc/dc.h b/drivers/gpu/drm/amd/display/dc/dc.h
+index 4c4239cac..d55fe115e 100644
+--- a/drivers/gpu/drm/amd/display/dc/dc.h
++++ b/drivers/gpu/drm/amd/display/dc/dc.h
+@@ -513,6 +513,7 @@ struct dc_config {
+ 	bool disable_fractional_pwm;
+ 	bool allow_seamless_boot_optimization;
+ 	bool seamless_boot_edp_requested;
++	bool allow_seamless_boot_non_preferred_tg;
+ 	bool edp_not_connected;
+ 	bool edp_no_power_sequencing;
+ 	bool force_enum_edp;

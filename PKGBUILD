@@ -41,7 +41,8 @@ T2_PATCH_HASH=76589a89790c33c137d173f2d98b6096cd16b132
 source=(
   https://cdn.kernel.org/pub/linux/kernel/v${_pkgver%%.*}.x/linux-${_pkgver}.tar.xz
   config  # the main kernel config file
-  6002-amdgpu-imac20-display-debug.patch
+  6001-amdgpu-imac20-display-debug.patch
+  6002-amdgpu-imac20-seamless-boot-quirk.patch
 
   # t2linux Patches
   patches::git+https://github.com/t2linux/linux-t2-patches
@@ -54,6 +55,11 @@ validpgpkeys=(
 )
 
 export KBUILD_BUILD_TIMESTAMP="$(date -Ru${SOURCE_DATE_EPOCH:+d @$SOURCE_DATE_EPOCH})"
+export BUILDUSER=builder
+export BUILDGROUP=build
+export HOSTNAME=linux-t2
+export KBUILD_BUILD_USER="$BUILDUSER"
+export KBUILD_BUILD_HOST="$HOSTNAME"
 
 _make() {
   test -s version
@@ -64,7 +70,7 @@ prepare() {
   cd $_srcname
 
   echo "Setting version..."
-  echo "-Watanare-T2" > localversion.10-codename
+  echo "-T2" > localversion.10-codename
   echo "-$pkgrel" > localversion.20-pkgrel
   echo "${pkgbase#linux}" > localversion.30-pkgname
   make defconfig
@@ -253,6 +259,7 @@ for _p in "${pkgname[@]}"; do
 done
 
 sha256sums=('SKIP'
+            'SKIP'
             'SKIP'
             'SKIP'
             'SKIP')
