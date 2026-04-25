@@ -41,6 +41,7 @@ T2_PATCH_HASH=76589a89790c33c137d173f2d98b6096cd16b132
 source=(
   https://github.com/archlinux/linux/archive/refs/tags/v${_pkgver}-arch${archrel}.tar.gz
   config  # the main kernel config file
+  6002-amdgpu-imac20-display-debug.patch
 
   # t2linux Patches
   patches::git+https://github.com/t2linux/linux-t2-patches
@@ -253,5 +254,6 @@ done
 
 sha256sums=('e87427e2eb4c063c4f8eb6c2c6e82247b3f88f92c88272f664c24cdf06cb1867'
             '4c1a996c6b5c7af5b9490dafe4c6be7a3575a476311213d0ec127e09431d3dd3'
+            '6d21b58415c615c7fe8151ce01c6a4207d14af74ae9bd4a4320469d4bd27a1c6'
             'SKIP')
 # vim:set ts=8 sts=2 sw=2 et:
