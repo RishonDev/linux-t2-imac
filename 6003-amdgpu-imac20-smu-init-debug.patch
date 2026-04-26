@@ -1,0 +1,155 @@
+diff --git a/drivers/gpu/drm/amd/pm/swsmu/amdgpu_smu.c b/drivers/gpu/drm/amd/pm/swsmu/amdgpu_smu.c
+index b05c8bb..a2fb69d 100644
+--- a/drivers/gpu/drm/amd/pm/swsmu/amdgpu_smu.c
++++ b/drivers/gpu/drm/amd/pm/swsmu/amdgpu_smu.c
+@@ -1787,15 +1787,23 @@ static int smu_smc_hw_setup(struct smu_context *smu)
+ 		pcie_width = 2;
+ 	else if (adev->pm.pcie_mlw_mask & CAIL_PCIE_LINK_WIDTH_SUPPORT_X1)
+ 		pcie_width = 1;
++	dev_info(adev->dev,
++		 "SMU init pcie override request: gen=%u width=%u gen_mask=0x%08x width_mask=0x%08x\n",
++		 pcie_gen, pcie_width, adev->pm.pcie_gen_mask,
++		 adev->pm.pcie_mlw_mask);
+ 	ret = smu_update_pcie_parameters(smu, pcie_gen, pcie_width);
+ 	if (ret) {
+-		dev_err(adev->dev, "Attempt to override pcie params failed!\n");
++		dev_err(adev->dev,
++			"Attempt to override pcie params failed! ret=%d\n",
++			ret);
+ 		return ret;
+ 	}
+ 
+ 	ret = smu_system_features_control(smu, true);
+ 	if (ret) {
+-		dev_err(adev->dev, "Failed to enable requested dpm features!\n");
++		dev_err(adev->dev,
++			"Failed to enable requested dpm features! ret=%d\n",
++			ret);
+ 		return ret;
+ 	}
+ 
+diff --git a/drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c b/drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c
+index 7ca8fdd..83ebfd5 100644
+--- a/drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c
++++ b/drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c
+@@ -746,6 +746,7 @@ int smu_v11_0_init_display_count(struct smu_context *smu, uint32_t count)
+ int smu_v11_0_set_allowed_mask(struct smu_context *smu)
+ {
+ 	struct smu_feature *feature = &smu->smu_feature;
++	struct amdgpu_device *adev = smu->adev;
+ 	int ret = 0;
+ 	uint32_t feature_mask[2];
+ 
+@@ -756,16 +757,28 @@ int smu_v11_0_set_allowed_mask(struct smu_context *smu)
+ 	}
+ 
+ 	smu_feature_list_to_arr32(smu, SMU_FEATURE_LIST_ALLOWED, feature_mask);
++	dev_info(adev->dev,
++		 "SMU allowed feature mask: low=0x%08x high=0x%08x feature_num=%u scpm=%d\n",
++		 feature_mask[0], feature_mask[1], feature->feature_num,
++		 adev->scpm_enabled);
+ 
+ 	ret = smu_cmn_send_smc_msg_with_param(smu, SMU_MSG_SetAllowedFeaturesMaskHigh,
+ 					  feature_mask[1], NULL);
+-	if (ret)
++	if (ret) {
++		dev_err(adev->dev,
++			"SMU failed SetAllowedFeaturesMaskHigh mask=0x%08x ret=%d\n",
++			feature_mask[1], ret);
+ 		goto failed;
++	}
+ 
+ 	ret = smu_cmn_send_smc_msg_with_param(smu, SMU_MSG_SetAllowedFeaturesMaskLow,
+ 					  feature_mask[0], NULL);
+-	if (ret)
++	if (ret) {
++		dev_err(adev->dev,
++			"SMU failed SetAllowedFeaturesMaskLow mask=0x%08x ret=%d\n",
++			feature_mask[0], ret);
+ 		goto failed;
++	}
+ 
+ failed:
+ 	return ret;
+@@ -774,8 +787,20 @@ failed:
+ int smu_v11_0_system_features_control(struct smu_context *smu,
+ 					     bool en)
+ {
+-	return smu_cmn_send_smc_msg(smu, (en ? SMU_MSG_EnableAllSmuFeatures :
+-					  SMU_MSG_DisableAllSmuFeatures), NULL);
++	struct amdgpu_device *adev = smu->adev;
++	enum smu_message_type msg = en ? SMU_MSG_EnableAllSmuFeatures :
++					 SMU_MSG_DisableAllSmuFeatures;
++	int ret;
++
++	dev_info(adev->dev, "SMU system features control: %s\n",
++		 en ? "enable" : "disable");
++	ret = smu_cmn_send_smc_msg(smu, msg, NULL);
++	if (ret)
++		dev_err(adev->dev,
++			"SMU system features control failed: %s ret=%d\n",
++			en ? "enable" : "disable", ret);
++
++	return ret;
+ }
+ 
+ int smu_v11_0_notify_display_change(struct smu_context *smu)
+diff --git a/drivers/gpu/drm/amd/pm/swsmu/smu_cmn.c b/drivers/gpu/drm/amd/pm/swsmu/smu_cmn.c
+index 6fd50c2..0aa7e74 100644
+--- a/drivers/gpu/drm/amd/pm/swsmu/smu_cmn.c
++++ b/drivers/gpu/drm/amd/pm/swsmu/smu_cmn.c
+@@ -303,10 +303,15 @@ static void __smu_msg_v1_print_err_limited(struct smu_msg_ctl *ctl,
+ 	if (__ratelimit(&_rs)) {
+ 		u32 in[SMU_MSG_MAX_ARGS];
+ 		int i;
++		int index = ctl->message_map[args->msg].map_to;
+ 
+-		dev_err(adev->dev, "%s msg_reg: %x resp_reg: %x", err_msg,
++		dev_err(adev->dev,
++			"%s message=%s(%d) ret-pending msg_reg=0x%08x resp_reg=0x%08x timeout_us=%u flags=0x%x\n",
++			err_msg, smu_get_message_name(smu, args->msg), index,
+ 			RREG32(ctl->config.msg_reg),
+-			RREG32(ctl->config.resp_reg));
++			RREG32(ctl->config.resp_reg),
++			args->timeout ? args->timeout : ctl->default_timeout,
++			args->flags);
+ 		if (args->num_args > 0) {
+ 			for (i = 0; i < args->num_args; i++)
+ 				in[i] = RREG32(ctl->config.arg_regs[i]);
+@@ -476,6 +481,18 @@ static int smu_msg_v1_send_msg(struct smu_msg_ctl *ctl,
+ 	}
+ 
+ 	/* Send message */
++	if (args->msg == SMU_MSG_EnableAllSmuFeatures ||
++	    args->msg == SMU_MSG_DisableAllSmuFeatures ||
++	    args->msg == SMU_MSG_SetAllowedFeaturesMaskHigh ||
++	    args->msg == SMU_MSG_SetAllowedFeaturesMaskLow)
++		dev_info(adev->dev,
++			 "SMU msg start: message=%s(%d) arg0=0x%08x pre_resp=0x%08x timeout_us=%u flags=0x%x\n",
++			 smu_get_message_name(smu, args->msg), index,
++			 args->num_args ? args->args[0] : 0,
++			 RREG32(ctl->config.resp_reg),
++			 args->timeout ? args->timeout : ctl->default_timeout,
++			 args->flags);
++
+ 	__smu_msg_v1_send(ctl, (u16)index, args);
+ 
+ 	/* Post-poll (skip if ASYNC) */
+@@ -487,6 +504,17 @@ static int smu_msg_v1_send_msg(struct smu_msg_ctl *ctl,
+ 	reg = __smu_msg_v1_poll_stat(ctl, args->timeout);
+ 	ret = smu_msg_v1_decode_response(reg);
+ 
++	if (args->msg == SMU_MSG_EnableAllSmuFeatures ||
++	    args->msg == SMU_MSG_DisableAllSmuFeatures ||
++	    args->msg == SMU_MSG_SetAllowedFeaturesMaskHigh ||
++	    args->msg == SMU_MSG_SetAllowedFeaturesMaskLow)
++		dev_info(adev->dev,
++			 "SMU msg done: message=%s(%d) arg0=0x%08x resp=0x%08x ret=%d msg_reg=0x%08x arg_reg0=0x%08x\n",
++			 smu_get_message_name(smu, args->msg), index,
++			 args->num_args ? args->args[0] : 0, reg, ret,
++			 RREG32(ctl->config.msg_reg),
++			 ctl->config.num_arg_regs ? RREG32(ctl->config.arg_regs[0]) : 0);
++
+ 	/* FW state update on fatal error */
+ 	if (ret == -EREMOTEIO) {
+ 		smu->smc_fw_state = SMU_FW_HANG;
