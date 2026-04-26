@@ -46,6 +46,7 @@ source=(
   6003-amdgpu-imac20-smu-init-debug.patch
   6004-amdgpu-imac20-atomic-display-debug.patch
   6005-amdgpu-imac20-handoff-panel-debug.patch
+  6006-amdgpu-imac20-force-mode1-reset-on-init.patch
 
   # t2linux Patches
   patches::git+https://github.com/t2linux/linux-t2-patches
@@ -262,6 +263,7 @@ for _p in "${pkgname[@]}"; do
 done
 
 sha256sums=('SKIP'
+            'SKIP'
             'SKIP'
             'SKIP'
             'SKIP'
