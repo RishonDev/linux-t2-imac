@@ -41,10 +41,10 @@ T2_PATCH_HASH=76589a89790c33c137d173f2d98b6096cd16b132
 source=(
   https://cdn.kernel.org/pub/linux/kernel/v${_pkgver%%.*}.x/linux-${_pkgver}.tar.xz
   config  # the main kernel config file
-  6002-amdgpu-imac20-panel-mode-quirk.patch
-  6003-amdgpu-imac20-debug-instrumentation.patch
-  6007-amdgpu-imac20-disable-navi-smu-low-power-features.patch
-  6008-amdgpu-imac20-disable-extra-smu-power-features.patch
+  6001-amdgpu-imac20-panel-mode-quirk.patch
+  6002-amdgpu-imac20-disable-navi-smu-low-power-features.patch
+  6003-amdgpu-imac20-disable-extra-smu-power-features.patch
+  6004-amdgpu-imac20-debug-instrumentation.patch
 
   # t2linux Patches
   patches::git+https://github.com/t2linux/linux-t2-patches
