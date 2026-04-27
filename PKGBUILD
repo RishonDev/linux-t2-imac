@@ -47,6 +47,7 @@ source=(
   6004-amdgpu-imac20-atomic-display-debug.patch
   6005-amdgpu-imac20-handoff-panel-debug.patch
   6007-amdgpu-imac20-disable-navi-smu-low-power-features.patch
+  6008-amdgpu-imac20-disable-extra-smu-power-features.patch
 
   # t2linux Patches
   patches::git+https://github.com/t2linux/linux-t2-patches
@@ -263,6 +264,7 @@ for _p in "${pkgname[@]}"; do
 done
 
 sha256sums=('SKIP'
+            'SKIP'
             'SKIP'
             'SKIP'
             'SKIP'
