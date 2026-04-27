@@ -286,15 +286,16 @@
  
 --- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
 +++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
-@@ -78,6 +78,7 @@
+@@ -78,6 +78,8 @@
  #include <linux/power_supply.h>
  #include <linux/firmware.h>
  #include <linux/component.h>
 +#include <linux/dmi.h>
++#include <linux/i2c.h>
  #include <linux/sort.h>
  
  #include <drm/drm_privacy_screen_consumer.h>
-@@ -108,6 +109,214 @@
+@@ -108,6 +110,288 @@
  
  #define FIRMWARE_RENOIR_DMUB "amdgpu/renoir_dmcub.bin"
  MODULE_FIRMWARE(FIRMWARE_RENOIR_DMUB);
@@ -310,6 +311,7 @@
 +static atomic_t amdgpu_dm_imac20_modes_log_count = ATOMIC_INIT(0);
 +static atomic_t amdgpu_dm_imac20_mode_valid_log_count = ATOMIC_INIT(0);
 +static atomic_t amdgpu_dm_imac20_raw_caps_log_count = ATOMIC_INIT(0);
++static atomic_t amdgpu_dm_imac20_late_i2c_log_count = ATOMIC_INIT(0);
 +
 +static bool amdgpu_dm_imac20_should_log_commit(struct drm_atomic_state *state)
 +{
@@ -344,6 +346,78 @@
 +	return crtc ? crtc->name : "none";
 +}
 +
++static void amdgpu_dm_imac20_late_i2c_probe(struct drm_connector *connector,
++					    const char *stage)
++{
++	static const u8 probe_addrs[] = {
++		0x2c, 0x2d, 0x37, 0x3a, 0x3b, 0x4a, 0x4c, 0x50, 0x52, 0x58
++	};
++	struct amdgpu_dm_connector *aconnector = to_amdgpu_dm_connector(connector);
++	struct dc_link *link = aconnector->dc_link;
++	struct i2c_adapter *ddc;
++	u8 data;
++	int i;
++
++	if (!amdgpu_dm_is_imac20() ||
++	    atomic_inc_return(&amdgpu_dm_imac20_late_i2c_log_count) > 4)
++		return;
++
++	if (!link || link->link_index != 0 || !link->is_internal_display)
++		return;
++
++	if (link->aux_mode)
++		ddc = &aconnector->dm_dp_aux.aux.ddc;
++	else if (aconnector->i2c)
++		ddc = &aconnector->i2c->base;
++	else
++		ddc = NULL;
++	if (!ddc)
++		return;
++
++	for (i = 0; i < ARRAY_SIZE(probe_addrs); i++) {
++		struct i2c_msg msg = {
++			.addr = probe_addrs[i],
++			.flags = I2C_M_RD,
++			.len = 1,
++			.buf = &data,
++		};
++		int ret;
++
++		data = 0;
++		ret = i2c_transfer(ddc, &msg, 1);
++		drm_info(connector->dev,
++			 "iMac20 late I2C probe: %s connector=%s link=%u aux=%d addr=0x%02x ret=%d data=0x%02x\n",
++			 stage, connector->name, link->link_index,
++			 link->aux_mode, probe_addrs[i], ret, data);
++	}
++
++	if (aconnector->drm_edid) {
++		u8 offset = 0;
++		u8 edid_header[8] = {0};
++		struct i2c_msg msgs[] = {
++			{
++				.addr = 0x50,
++				.flags = 0,
++				.len = 1,
++				.buf = &offset,
++			},
++			{
++				.addr = 0x50,
++				.flags = I2C_M_RD,
++				.len = sizeof(edid_header),
++				.buf = edid_header,
++			},
++		};
++		int ret = i2c_transfer(ddc, msgs, ARRAY_SIZE(msgs));
++
++		drm_info(connector->dev,
++			 "iMac20 late I2C EDID probe: %s connector=%s link=%u aux=%d ret=%d header=%*ph\n",
++			 stage, connector->name, link->link_index,
++			 link->aux_mode, ret, (int)sizeof(edid_header),
++			 edid_header);
++	}
++}
++
 +static void amdgpu_dm_imac20_log_modes(struct drm_connector *connector,
 +				       const char *stage)
 +{
@@ -356,11 +430,13 @@
 +	if (!amdgpu_dm_is_imac20() || count > 24)
 +		return;
 +
++	amdgpu_dm_imac20_late_i2c_probe(connector, stage);
++
 +	drm_info(connector->dev,
 +		 "iMac20 mode debug: %s connector=%s status=%d type=%d probed=%d has_edid=%d has_sink=%d has_tile=%d tile=%ux%u loc=%u,%u size=%ux%u link=%u signal=%d type=%d internal=%d hpd=%d aux=%d sink_count=%u reported=%ux%u verified=%ux%u cur=%ux%u\n",
 +		 stage, connector->name, connector->status,
 +		 connector->connector_type, aconnector->num_modes,
-+		 aconnector->drm_edid != NULL, aconnector->dc_sink != NULL,
++		 !!aconnector->drm_edid, !!aconnector->dc_sink,
 +		 connector->has_tile, connector->num_h_tile,
 +		 connector->num_v_tile, connector->tile_h_loc,
 +		 connector->tile_v_loc, connector->tile_h_size,
@@ -606,8 +682,7 @@
 +			 connector->name, mode->name,
 +			 mode->hdisplay, mode->vdisplay,
 +			 mode->htotal, mode->vtotal, mode->clock,
-+			 result, dc_sink != NULL,
-+			 aconnector->drm_edid != NULL,
++			 result, !!dc_sink, !!aconnector->drm_edid,
 +			 connector->has_tile, link->link_index,
 +			 link->connector_signal, link->type,
 +			 link->is_internal_display,
