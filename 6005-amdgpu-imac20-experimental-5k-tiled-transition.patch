@@ -1,0 +1,121 @@
+diff --git a/drivers/gpu/drm/amd/display/dc/link/link_detection.c b/drivers/gpu/drm/amd/display/dc/link/link_detection.c
+index 102ce3e0d..7d08db520 100644
+--- a/drivers/gpu/drm/amd/display/dc/link/link_detection.c
++++ b/drivers/gpu/drm/amd/display/dc/link/link_detection.c
+@@ -48,6 +48,8 @@
+ #include "dm_helpers.h"
+ #include "clk_mgr.h"
+ 
++#include <linux/dmi.h>
++
+  // Offset DPCD 050Eh == 0x5A
+ #define MST_HUB_ID_0x5A  0x5A
+ 
+@@ -70,6 +72,97 @@ static const u8 DP_SINK_BRANCH_DEV_NAME_7580[] = "7580\x80u";
+ 
+ static const u8 dp_hdmi_dongle_signature_str[] = "DP-HDMI ADAPTOR";
+ 
++static bool is_apple_imac20_5k(void)
++{
++	return dmi_match(DMI_SYS_VENDOR, "Apple Inc.") &&
++		(dmi_match(DMI_PRODUCT_NAME, "iMac20,1") ||
++		 dmi_match(DMI_PRODUCT_NAME, "iMac20,2"));
++}
++
++static bool should_try_imac20_5k_tiled_transition(const struct dc_link *link)
++{
++	return is_apple_imac20_5k() &&
++		link->link_index == 0 &&
++		link->connector_signal == SIGNAL_TYPE_EDP;
++}
++
++static void log_imac20_dpcd_block(struct dc_link *link, uint32_t address,
++				  const char *name)
++{
++	u8 data[16] = {0};
++	enum dc_status status;
++
++	status = core_link_read_dpcd(link, address, data, sizeof(data));
++	DC_LOG_INFO("link=%d iMac20 DPCD %s 0x%05x st=%d: %*ph\n",
++		    link->link_index, name, address, status, (int)sizeof(data),
++		    data);
++}
++
++static void log_imac20_5k_dpcd_state(struct dc_link *link, const char *phase)
++{
++	if (!should_try_imac20_5k_tiled_transition(link))
++		return;
++
++	DC_LOG_INFO("link=%d iMac20 5K DPCD dump: %s\n",
++		    link->link_index, phase);
++	log_imac20_dpcd_block(link, 0x000, "rx-caps");
++	log_imac20_dpcd_block(link, 0x010, "edp-rates");
++	log_imac20_dpcd_block(link, 0x020, "downstream");
++	log_imac20_dpcd_block(link, 0x100, "link-cfg");
++	log_imac20_dpcd_block(link, 0x110, "mst-power");
++	log_imac20_dpcd_block(link, 0x200, "link-status");
++	log_imac20_dpcd_block(link, 0x500, "branch-id");
++	log_imac20_dpcd_block(link, 0x700, "edp-caps");
++}
++
++static void try_imac20_5k_tiled_transition(struct dc_link *link)
++{
++	u8 mstm_cap = 0;
++	u8 mstm_ctrl = 0;
++	u8 new_mstm_ctrl;
++	enum dc_status cap_status;
++	enum dc_status ctrl_status;
++	enum dc_status write_status;
++
++	if (!should_try_imac20_5k_tiled_transition(link))
++		return;
++
++	log_imac20_5k_dpcd_state(link, "before-transition");
++
++	cap_status = core_link_read_dpcd(link, DP_MSTM_CAP, &mstm_cap,
++					 sizeof(mstm_cap));
++	ctrl_status = core_link_read_dpcd(link, DP_MSTM_CTRL, &mstm_ctrl,
++					  sizeof(mstm_ctrl));
++
++	DC_LOG_INFO("link=%d iMac20 5K tiled transition before: cap_st=%d ctrl_st=%d\n",
++		    link->link_index, cap_status, ctrl_status);
++	DC_LOG_INFO("link=%d iMac20 5K before: cap=0x%02x ctrl=0x%02x mst=%d sink=0x%02x br=0x%x\n",
++		    link->link_index, mstm_cap, mstm_ctrl,
++		    link->dpcd_caps.is_mst_capable,
++		    link->dpcd_caps.sink_count.raw,
++		    link->dpcd_caps.branch_dev_id);
++
++	if (!(mstm_cap & DP_MST_CAP)) {
++		DC_LOG_INFO("link=%d iMac20 5K: no MST cap, skip MST ctrl write\n",
++			    link->link_index);
++		return;
++	}
++
++	new_mstm_ctrl = mstm_ctrl | DP_MST_EN | DP_UP_REQ_EN | DP_UPSTREAM_IS_SRC;
++	write_status = core_link_write_dpcd(link, DP_MSTM_CTRL, &new_mstm_ctrl,
++					    sizeof(new_mstm_ctrl));
++	msleep(100);
++
++	mstm_ctrl = 0;
++	ctrl_status = core_link_read_dpcd(link, DP_MSTM_CTRL, &mstm_ctrl,
++					  sizeof(mstm_ctrl));
++
++	DC_LOG_INFO("link=%d iMac20 5K after: write_st=%d ctrl_st=%d req=0x%02x ctrl=0x%02x\n",
++		    link->link_index, write_status, ctrl_status, new_mstm_ctrl,
++		    mstm_ctrl);
++	log_imac20_5k_dpcd_state(link, "after-transition");
++}
++
+ static enum ddc_transaction_type get_ddc_transaction_type(enum signal_type sink_signal)
+ {
+ 	enum ddc_transaction_type transaction_type = DDC_TRANSACTION_TYPE_NONE;
+@@ -1059,6 +1152,9 @@ static bool detect_link_and_local_sink(struct dc_link *link,
+ 
+ 		case SIGNAL_TYPE_EDP: {
+ 			detect_edp_sink_caps(link);
++			try_imac20_5k_tiled_transition(link);
++			if (should_try_imac20_5k_tiled_transition(link))
++				detect_edp_sink_caps(link);
+ 			read_current_link_settings_on_detect(link);
+ 
+ 			/* Disable power sequence on MIPI panel + converter

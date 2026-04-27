@@ -26,20 +26,15 @@ index 163e09ca0..66e68e439 100644
  static struct cmn2asic_msg_mapping navi10_message_map[SMU_MSG_MAX_COUNT] = {
  	MSG_MAP(TestMessage,			PPSMC_MSG_TestMessage,			1),
  	MSG_MAP(GetSmuVersion,			PPSMC_MSG_GetSmuVersion,		1),
-@@ -355,6 +365,18 @@ navi10_init_allowed_features(struct smu_context *smu)
+@@ -355,6 +365,13 @@ navi10_init_allowed_features(struct smu_context *smu)
  	    (adev->rev_id == 0))
  		smu_feature_list_clear_bit(smu, SMU_FEATURE_LIST_ALLOWED, FEATURE_DS_SOCCLK_BIT);
  
 +	if (navi10_is_apple_imac20(adev)) {
-+		smu_feature_list_clear_bit(smu, SMU_FEATURE_LIST_ALLOWED, FEATURE_DS_GFXCLK_BIT);
-+		smu_feature_list_clear_bit(smu, SMU_FEATURE_LIST_ALLOWED, FEATURE_DS_SOCCLK_BIT);
-+		smu_feature_list_clear_bit(smu, SMU_FEATURE_LIST_ALLOWED, FEATURE_DS_LCLK_BIT);
-+		smu_feature_list_clear_bit(smu, SMU_FEATURE_LIST_ALLOWED, FEATURE_DS_DCEFCLK_BIT);
-+		smu_feature_list_clear_bit(smu, SMU_FEATURE_LIST_ALLOWED, FEATURE_FW_DSTATE_BIT);
 +		smu_feature_list_clear_bit(smu, SMU_FEATURE_LIST_ALLOWED, FEATURE_GFXOFF_BIT);
 +		smu_feature_list_clear_bit(smu, SMU_FEATURE_LIST_ALLOWED, FEATURE_BACO_BIT);
 +		dev_info(adev->dev,
-+			 "iMac20 SMU quirk: disabled Navi low-power features before EnableAllSmuFeatures\n");
++			 "iMac20 SMU quirk: disabled GFXOFF/BACO before EnableAllSmuFeatures\n");
 +	}
 +
  	return 0;

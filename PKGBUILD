@@ -43,8 +43,8 @@ source=(
   config  # the main kernel config file
   6001-amdgpu-imac20-panel-mode-quirk.patch
   6002-amdgpu-imac20-disable-navi-smu-low-power-features.patch
-  6003-amdgpu-imac20-disable-extra-smu-power-features.patch
   6004-amdgpu-imac20-debug-instrumentation.patch
+  6005-amdgpu-imac20-experimental-5k-tiled-transition.patch
 
   # t2linux Patches
   patches::git+https://github.com/t2linux/linux-t2-patches
