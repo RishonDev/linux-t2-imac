@@ -1,0 +1,47 @@
+diff --git a/drivers/gpu/drm/amd/pm/swsmu/smu11/navi10_ppt.c b/drivers/gpu/drm/amd/pm/swsmu/smu11/navi10_ppt.c
+index 163e09ca0..66e68e439 100644
+--- a/drivers/gpu/drm/amd/pm/swsmu/smu11/navi10_ppt.c
++++ b/drivers/gpu/drm/amd/pm/swsmu/smu11/navi10_ppt.c
+@@ -26,6 +26,7 @@
+ #include <linux/firmware.h>
+ #include <linux/pci.h>
+ #include <linux/i2c.h>
++#include <linux/dmi.h>
+ #include "amdgpu.h"
+ #include "amdgpu_dpm.h"
+ #include "amdgpu_smu.h"
+@@ -73,6 +74,15 @@ static const struct smu_feature_bits navi10_dpm_features = {
+ 
+ #define SMU_11_0_GFX_BUSY_THRESHOLD 15
+ 
++static bool navi10_is_apple_imac20(struct amdgpu_device *adev)
++{
++	return adev->pdev->vendor == PCI_VENDOR_ID_ATI &&
++	       adev->pdev->device == 0x7340 &&
++	       dmi_match(DMI_SYS_VENDOR, "Apple Inc.") &&
++	       (dmi_match(DMI_PRODUCT_NAME, "iMac20,1") ||
++		dmi_match(DMI_PRODUCT_NAME, "iMac20,2"));
++}
++
+ static struct cmn2asic_msg_mapping navi10_message_map[SMU_MSG_MAX_COUNT] = {
+ 	MSG_MAP(TestMessage,			PPSMC_MSG_TestMessage,			1),
+ 	MSG_MAP(GetSmuVersion,			PPSMC_MSG_GetSmuVersion,		1),
+@@ -355,6 +365,18 @@ navi10_init_allowed_features(struct smu_context *smu)
+ 	    (adev->rev_id == 0))
+ 		smu_feature_list_clear_bit(smu, SMU_FEATURE_LIST_ALLOWED, FEATURE_DS_SOCCLK_BIT);
+ 
++	if (navi10_is_apple_imac20(adev)) {
++		smu_feature_list_clear_bit(smu, SMU_FEATURE_LIST_ALLOWED, FEATURE_DS_GFXCLK_BIT);
++		smu_feature_list_clear_bit(smu, SMU_FEATURE_LIST_ALLOWED, FEATURE_DS_SOCCLK_BIT);
++		smu_feature_list_clear_bit(smu, SMU_FEATURE_LIST_ALLOWED, FEATURE_DS_LCLK_BIT);
++		smu_feature_list_clear_bit(smu, SMU_FEATURE_LIST_ALLOWED, FEATURE_DS_DCEFCLK_BIT);
++		smu_feature_list_clear_bit(smu, SMU_FEATURE_LIST_ALLOWED, FEATURE_FW_DSTATE_BIT);
++		smu_feature_list_clear_bit(smu, SMU_FEATURE_LIST_ALLOWED, FEATURE_GFXOFF_BIT);
++		smu_feature_list_clear_bit(smu, SMU_FEATURE_LIST_ALLOWED, FEATURE_BACO_BIT);
++		dev_info(adev->dev,
++			 "iMac20 SMU quirk: disabled Navi low-power features before EnableAllSmuFeatures\n");
++	}
++
+ 	return 0;
+ }
+ 
