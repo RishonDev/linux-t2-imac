@@ -1,0 +1,1551 @@
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
+index 6d8531f..dc30cbc 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
+@@ -37,6 +37,7 @@
+ #include <linux/pci-p2pdma.h>
+ #include <linux/apple-gmux.h>
+ #include <linux/nospec.h>
++#include <linux/dmi.h>
+ 
+ #include <drm/drm_atomic_helper.h>
+ #include <drm/drm_client_event.h>
+@@ -79,6 +80,20 @@
+ #include "amdgpu_virt.h"
+ #include "amdgpu_dev_coredump.h"
+ 
++static bool amdgpu_device_is_imac20(void)
++{
++	return dmi_match(DMI_SYS_VENDOR, "Apple Inc.") &&
++		(dmi_match(DMI_PRODUCT_NAME, "iMac20,1") ||
++		 dmi_match(DMI_PRODUCT_NAME, "iMac20,2"));
++}
++
++static void amdgpu_imac20_init_log(struct amdgpu_device *adev,
++				   const char *stage)
++{
++	if (amdgpu_device_is_imac20())
++		dev_info(adev->dev, "iMac20 init debug: %s\n", stage);
++}
++
+ #include <linux/suspend.h>
+ #include <drm/task_barrier.h>
+ #include <linux/pm_runtime.h>
+@@ -2816,6 +2831,8 @@ static int amdgpu_device_ip_hw_init_phase1(struct amdgpu_device *adev)
+ {
+ 	int i, r;
+ 
++	amdgpu_imac20_init_log(adev, "ip_hw_init_phase1 begin");
++
+ 	for (i = 0; i < adev->num_ip_blocks; i++) {
+ 		if (!adev->ip_blocks[i].status.sw)
+ 			continue;
+@@ -2827,6 +2844,11 @@ static int amdgpu_device_ip_hw_init_phase1(struct amdgpu_device *adev)
+ 		if (adev->ip_blocks[i].version->type == AMD_IP_BLOCK_TYPE_COMMON ||
+ 		    (amdgpu_sriov_vf(adev) && (adev->ip_blocks[i].version->type == AMD_IP_BLOCK_TYPE_PSP)) ||
+ 		    adev->ip_blocks[i].version->type == AMD_IP_BLOCK_TYPE_IH) {
++			if (amdgpu_device_is_imac20())
++				dev_info(adev->dev,
++					 "iMac20 init debug: phase1 hw_init begin ip=%d name=%s type=%d\n",
++					 i, adev->ip_blocks[i].version->funcs->name,
++					 adev->ip_blocks[i].version->type);
+ 			r = adev->ip_blocks[i].version->funcs->hw_init(&adev->ip_blocks[i]);
+ 			if (r) {
+ 				dev_err(adev->dev,
+@@ -2835,10 +2857,16 @@ static int amdgpu_device_ip_hw_init_phase1(struct amdgpu_device *adev)
+ 					r);
+ 				return r;
+ 			}
++			if (amdgpu_device_is_imac20())
++				dev_info(adev->dev,
++					 "iMac20 init debug: phase1 hw_init done ip=%d name=%s\n",
++					 i, adev->ip_blocks[i].version->funcs->name);
+ 			adev->ip_blocks[i].status.hw = true;
+ 		}
+ 	}
+ 
++	amdgpu_imac20_init_log(adev, "ip_hw_init_phase1 done");
++
+ 	return 0;
+ }
+ 
+@@ -2846,6 +2874,8 @@ static int amdgpu_device_ip_hw_init_phase2(struct amdgpu_device *adev)
+ {
+ 	int i, r;
+ 
++	amdgpu_imac20_init_log(adev, "ip_hw_init_phase2 begin");
++
+ 	for (i = 0; i < adev->num_ip_blocks; i++) {
+ 		if (!adev->ip_blocks[i].status.sw)
+ 			continue;
+@@ -2854,6 +2884,11 @@ static int amdgpu_device_ip_hw_init_phase2(struct amdgpu_device *adev)
+ 		if (!amdgpu_ip_member_of_hwini(
+ 			    adev, adev->ip_blocks[i].version->type))
+ 			continue;
++		if (amdgpu_device_is_imac20())
++			dev_info(adev->dev,
++				 "iMac20 init debug: phase2 hw_init begin ip=%d name=%s type=%d\n",
++				 i, adev->ip_blocks[i].version->funcs->name,
++				 adev->ip_blocks[i].version->type);
+ 		r = adev->ip_blocks[i].version->funcs->hw_init(&adev->ip_blocks[i]);
+ 		if (r) {
+ 			dev_err(adev->dev,
+@@ -2861,9 +2896,15 @@ static int amdgpu_device_ip_hw_init_phase2(struct amdgpu_device *adev)
+ 				adev->ip_blocks[i].version->funcs->name, r);
+ 			return r;
+ 		}
++		if (amdgpu_device_is_imac20())
++			dev_info(adev->dev,
++				 "iMac20 init debug: phase2 hw_init done ip=%d name=%s\n",
++				 i, adev->ip_blocks[i].version->funcs->name);
+ 		adev->ip_blocks[i].status.hw = true;
+ 	}
+ 
++	amdgpu_imac20_init_log(adev, "ip_hw_init_phase2 done");
++
+ 	return 0;
+ }
+ 
+@@ -2999,6 +3040,8 @@ static int amdgpu_device_ip_init(struct amdgpu_device *adev)
+ 	bool init_badpage;
+ 	int i, r;
+ 
++	amdgpu_imac20_init_log(adev, "ip_init begin");
++
+ 	r = amdgpu_ras_init(adev);
+ 	if (r)
+ 		return r;
+@@ -3007,6 +3050,11 @@ static int amdgpu_device_ip_init(struct amdgpu_device *adev)
+ 		if (!adev->ip_blocks[i].status.valid)
+ 			continue;
+ 		if (adev->ip_blocks[i].version->funcs->sw_init) {
++			if (amdgpu_device_is_imac20())
++				dev_info(adev->dev,
++					 "iMac20 init debug: sw_init begin ip=%d name=%s type=%d\n",
++					 i, adev->ip_blocks[i].version->funcs->name,
++					 adev->ip_blocks[i].version->type);
+ 			r = adev->ip_blocks[i].version->funcs->sw_init(&adev->ip_blocks[i]);
+ 			if (r) {
+ 				dev_err(adev->dev,
+@@ -3015,6 +3063,10 @@ static int amdgpu_device_ip_init(struct amdgpu_device *adev)
+ 					r);
+ 				goto init_failed;
+ 			}
++			if (amdgpu_device_is_imac20())
++				dev_info(adev->dev,
++					 "iMac20 init debug: sw_init done ip=%d name=%s\n",
++					 i, adev->ip_blocks[i].version->funcs->name);
+ 		}
+ 		adev->ip_blocks[i].status.sw = true;
+ 
+@@ -3024,12 +3076,20 @@ static int amdgpu_device_ip_init(struct amdgpu_device *adev)
+ 
+ 		if (adev->ip_blocks[i].version->type == AMD_IP_BLOCK_TYPE_COMMON) {
+ 			/* need to do common hw init early so everything is set up for gmc */
++			if (amdgpu_device_is_imac20())
++				dev_info(adev->dev,
++					 "iMac20 init debug: early common hw_init begin ip=%d name=%s\n",
++					 i, adev->ip_blocks[i].version->funcs->name);
+ 			r = adev->ip_blocks[i].version->funcs->hw_init(&adev->ip_blocks[i]);
+ 			if (r) {
+ 				dev_err(adev->dev, "hw_init %d failed %d\n", i,
+ 					r);
+ 				goto init_failed;
+ 			}
++			if (amdgpu_device_is_imac20())
++				dev_info(adev->dev,
++					 "iMac20 init debug: early common hw_init done ip=%d name=%s\n",
++					 i, adev->ip_blocks[i].version->funcs->name);
+ 			adev->ip_blocks[i].status.hw = true;
+ 		} else if (adev->ip_blocks[i].version->type == AMD_IP_BLOCK_TYPE_GMC) {
+ 			/* need to do gmc hw init early so we can allocate gpu mem */
+@@ -3044,12 +3104,20 @@ static int amdgpu_device_ip_init(struct amdgpu_device *adev)
+ 					r);
+ 				goto init_failed;
+ 			}
++			if (amdgpu_device_is_imac20())
++				dev_info(adev->dev,
++					 "iMac20 init debug: early gmc hw_init begin ip=%d name=%s\n",
++					 i, adev->ip_blocks[i].version->funcs->name);
+ 			r = adev->ip_blocks[i].version->funcs->hw_init(&adev->ip_blocks[i]);
+ 			if (r) {
+ 				dev_err(adev->dev, "hw_init %d failed %d\n", i,
+ 					r);
+ 				goto init_failed;
+ 			}
++			if (amdgpu_device_is_imac20())
++				dev_info(adev->dev,
++					 "iMac20 init debug: early gmc hw_init done ip=%d name=%s\n",
++					 i, adev->ip_blocks[i].version->funcs->name);
+ 			r = amdgpu_device_wb_init(adev);
+ 			if (r) {
+ 				dev_err(adev->dev,
+@@ -3083,25 +3151,33 @@ static int amdgpu_device_ip_init(struct amdgpu_device *adev)
+ 	if (amdgpu_sriov_vf(adev))
+ 		amdgpu_virt_init_data_exchange(adev);
+ 
++	amdgpu_imac20_init_log(adev, "ib_pool_init begin");
+ 	r = amdgpu_ib_pool_init(adev);
+ 	if (r) {
+ 		dev_err(adev->dev, "IB initialization failed (%d).\n", r);
+ 		amdgpu_vf_error_put(adev, AMDGIM_ERROR_VF_IB_INIT_FAIL, 0, r);
+ 		goto init_failed;
+ 	}
++	amdgpu_imac20_init_log(adev, "ib_pool_init done");
+ 
++	amdgpu_imac20_init_log(adev, "ucode_create_bo begin");
+ 	r = amdgpu_ucode_create_bo(adev); /* create ucode bo when sw_init complete*/
+ 	if (r)
+ 		goto init_failed;
++	amdgpu_imac20_init_log(adev, "ucode_create_bo done");
+ 
++	amdgpu_imac20_init_log(adev, "ip_hw_init_phase1 call");
+ 	r = amdgpu_device_ip_hw_init_phase1(adev);
+ 	if (r)
+ 		goto init_failed;
+ 
++	amdgpu_imac20_init_log(adev, "fw_loading begin");
+ 	r = amdgpu_device_fw_loading(adev);
+ 	if (r)
+ 		goto init_failed;
++	amdgpu_imac20_init_log(adev, "fw_loading done");
+ 
++	amdgpu_imac20_init_log(adev, "ip_hw_init_phase2 call");
+ 	r = amdgpu_device_ip_hw_init_phase2(adev);
+ 	if (r)
+ 		goto init_failed;
+@@ -3172,6 +3248,8 @@ static int amdgpu_device_ip_init(struct amdgpu_device *adev)
+ 	r = amdgpu_cper_init(adev);
+ 
+ init_failed:
++	if (amdgpu_device_is_imac20())
++		dev_info(adev->dev, "iMac20 init debug: ip_init end ret=%d\n", r);
+ 
+ 	return r;
+ }
+@@ -4604,9 +4682,16 @@ int amdgpu_device_init(struct amdgpu_device *adev,
+ 	if ((pdev->class >> 8) == PCI_CLASS_DISPLAY_VGA ||
+ 	    (pdev->class >> 8) == PCI_CLASS_DISPLAY_OTHER) {
+ 		/* Get rid of things like offb */
++		amdgpu_imac20_init_log(adev, "aperture handoff begin: removing conflicting firmware/simple framebuffer");
+ 		r = aperture_remove_conflicting_pci_devices(adev->pdev, amdgpu_kms_driver.name);
+-		if (r)
++		if (r) {
++			if (amdgpu_device_is_imac20())
++				dev_info(adev->dev,
++					 "iMac20 init debug: aperture handoff failed ret=%d\n",
++					 r);
+ 			return r;
++		}
++		amdgpu_imac20_init_log(adev, "aperture handoff done: firmware/simple framebuffer removed");
+ 	}
+ 
+ 	/* Enable TMZ based on IP_VERSION */
+@@ -4670,6 +4755,7 @@ int amdgpu_device_init(struct amdgpu_device *adev,
+ 	 *  E.g., driver was not cleanly unloaded previously, etc.
+ 	 */
+ 	if (!amdgpu_sriov_vf(adev) && amdgpu_asic_need_reset_on_init(adev)) {
++		amdgpu_imac20_init_log(adev, "asic reset on init begin");
+ 		if (adev->gmc.xgmi.num_physical_nodes) {
+ 			dev_info(adev->dev, "Pending hive reset.\n");
+ 			amdgpu_set_init_level(adev,
+@@ -4688,6 +4774,7 @@ int amdgpu_device_init(struct amdgpu_device *adev,
+ 		  dev_err(adev->dev, "asic reset on init failed\n");
+ 		  goto failed;
+ 		}
++		amdgpu_imac20_init_log(adev, "asic reset on init done");
+ 	}
+ 
+ 	/* Post card if necessary */
+@@ -4698,11 +4785,13 @@ int amdgpu_device_init(struct amdgpu_device *adev,
+ 			goto failed;
+ 		}
+ 		dev_info(adev->dev, "GPU posting now...\n");
++		amdgpu_imac20_init_log(adev, "gpu post begin");
+ 		r = amdgpu_device_asic_init(adev);
+ 		if (r) {
+ 			dev_err(adev->dev, "gpu post error!\n");
+ 			goto failed;
+ 		}
++		amdgpu_imac20_init_log(adev, "gpu post done");
+ 	}
+ 
+ 	if (adev->bios) {
+@@ -4739,12 +4828,14 @@ int amdgpu_device_init(struct amdgpu_device *adev,
+ 	/* init the mode config */
+ 	drm_mode_config_init(adev_to_drm(adev));
+ 
++	amdgpu_imac20_init_log(adev, "amdgpu_device_ip_init call begin");
+ 	r = amdgpu_device_ip_init(adev);
+ 	if (r) {
+ 		dev_err(adev->dev, "amdgpu_device_ip_init failed\n");
+ 		amdgpu_vf_error_put(adev, AMDGIM_ERROR_VF_AMDGPU_INIT_FAIL, 0, 0);
+ 		goto release_ras_con;
+ 	}
++	amdgpu_imac20_init_log(adev, "amdgpu_device_ip_init call done");
+ 
+ 	amdgpu_fence_driver_hw_init(adev);
+ 
+diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
+index 2328c1a..791dbd9 100644
+--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
++++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
+@@ -78,6 +78,7 @@
+ #include <linux/power_supply.h>
+ #include <linux/firmware.h>
+ #include <linux/component.h>
++#include <linux/dmi.h>
+ #include <linux/sort.h>
+ 
+ #include <drm/drm_privacy_screen_consumer.h>
+@@ -108,6 +109,138 @@ static_assert(AMDGPU_DMUB_NOTIFICATION_MAX == DMUB_NOTIFICATION_MAX, "AMDGPU_DMU
+ 
+ #define FIRMWARE_RENOIR_DMUB "amdgpu/renoir_dmcub.bin"
+ MODULE_FIRMWARE(FIRMWARE_RENOIR_DMUB);
++
++static bool amdgpu_dm_is_imac20(void)
++{
++	return dmi_match(DMI_SYS_VENDOR, "Apple Inc.") &&
++	       (dmi_match(DMI_PRODUCT_NAME, "iMac20,1") ||
++		dmi_match(DMI_PRODUCT_NAME, "iMac20,2"));
++}
++
++static atomic_t amdgpu_dm_imac20_commit_log_count = ATOMIC_INIT(0);
++
++static bool amdgpu_dm_imac20_should_log_commit(struct drm_atomic_state *state)
++{
++	struct drm_crtc *crtc;
++	struct drm_crtc_state *old_crtc_state, *new_crtc_state;
++	struct drm_connector *connector;
++	struct drm_connector_state *old_con_state, *new_con_state;
++	u32 i;
++
++	if (!amdgpu_dm_is_imac20())
++		return false;
++
++	for_each_oldnew_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state, i) {
++		if (old_crtc_state->active != new_crtc_state->active ||
++		    new_crtc_state->active_changed ||
++		    new_crtc_state->mode_changed ||
++		    drm_atomic_crtc_needs_modeset(new_crtc_state))
++			return true;
++	}
++
++	for_each_oldnew_connector_in_state(state, connector, old_con_state, new_con_state, i) {
++		if (old_con_state->crtc != new_con_state->crtc ||
++		    new_con_state->link_status != old_con_state->link_status)
++			return true;
++	}
++
++	return atomic_inc_return(&amdgpu_dm_imac20_commit_log_count) <= 32;
++}
++
++static const char *amdgpu_dm_crtc_name(const struct drm_crtc *crtc)
++{
++	return crtc ? crtc->name : "none";
++}
++
++static void amdgpu_dm_imac20_log_atomic_state(struct drm_atomic_state *state,
++					      const char *stage)
++{
++	struct drm_device *dev = state->dev;
++	struct drm_connector *connector;
++	struct drm_connector_state *old_con_state, *new_con_state;
++	struct drm_crtc *crtc;
++	struct drm_crtc_state *old_crtc_state, *new_crtc_state;
++	struct drm_plane *plane;
++	struct drm_plane_state *old_plane_state, *new_plane_state;
++	u32 i;
++
++	if (!amdgpu_dm_is_imac20())
++		return;
++
++	drm_info(dev, "iMac20 display debug: atomic %s begin\n", stage);
++
++	for_each_oldnew_connector_in_state(state, connector, old_con_state, new_con_state, i) {
++		struct drm_crtc_state *conn_crtc_state = NULL;
++		struct amdgpu_dm_connector *aconnector = NULL;
++		struct dc_link *link = NULL;
++		int link_index = -1;
++		int link_signal = -1;
++		int link_connector_signal = -1;
++		int bl_idx = -1;
++		bool needs_modeset = false;
++
++		if (new_con_state->crtc)
++			conn_crtc_state = drm_atomic_get_new_crtc_state(state, new_con_state->crtc);
++
++		if (conn_crtc_state)
++			needs_modeset = drm_atomic_crtc_needs_modeset(conn_crtc_state);
++
++		if (connector->connector_type != DRM_MODE_CONNECTOR_WRITEBACK) {
++			aconnector = to_amdgpu_dm_connector(connector);
++			link = aconnector->dc_link;
++			bl_idx = aconnector->bl_idx;
++		}
++
++		if (link) {
++			link_index = link->link_index;
++			link_signal = link->connector_signal;
++			link_connector_signal = link->type;
++		}
++
++		drm_info(dev,
++			 "iMac20 display debug: atomic %s connector=%s id=%d type=%d status=%d old_crtc=%s new_crtc=%s needs_modeset=%d link=%d signal=%d type=%d bl_idx=%d\n",
++			 stage, connector->name, connector->base.id,
++			 connector->connector_type, connector->status,
++			 amdgpu_dm_crtc_name(old_con_state->crtc),
++			 amdgpu_dm_crtc_name(new_con_state->crtc),
++			 needs_modeset, link_index, link_signal,
++			 link_connector_signal, bl_idx);
++	}
++
++	for_each_oldnew_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state, i) {
++		const struct drm_display_mode *mode = &new_crtc_state->mode;
++
++		drm_info(dev,
++			 "iMac20 display debug: atomic %s crtc=%s id=%d old_active=%d new_active=%d enable=%d mode_changed=%d active_changed=%d planes_changed=%d async=%d event=%d mode=%dx%d total=%dx%d clock=%d\n",
++			 stage, crtc->name, crtc->base.id,
++			 old_crtc_state->active, new_crtc_state->active,
++			 new_crtc_state->enable, new_crtc_state->mode_changed,
++			 new_crtc_state->active_changed,
++			 new_crtc_state->planes_changed,
++			 new_crtc_state->async_flip,
++			 new_crtc_state->event != NULL,
++			 mode->hdisplay, mode->vdisplay,
++			 mode->htotal, mode->vtotal, mode->clock);
++	}
++
++	for_each_oldnew_plane_in_state(state, plane, old_plane_state, new_plane_state, i) {
++		drm_info(dev,
++			 "iMac20 display debug: atomic %s plane=%s id=%d type=%d old_crtc=%s new_crtc=%s fb=%u visible=%d src=%dx%d dst=%dx%d pos=%d,%d\n",
++			 stage, plane->name, plane->base.id, plane->type,
++			 amdgpu_dm_crtc_name(old_plane_state->crtc),
++			 amdgpu_dm_crtc_name(new_plane_state->crtc),
++			 new_plane_state->fb ? new_plane_state->fb->base.id : 0,
++			 new_plane_state->visible,
++			 new_plane_state->src_w >> 16,
++			 new_plane_state->src_h >> 16,
++			 new_plane_state->crtc_w,
++			 new_plane_state->crtc_h,
++			 new_plane_state->crtc_x,
++			 new_plane_state->crtc_y);
++	}
++
++	drm_info(dev, "iMac20 display debug: atomic %s end\n", stage);
++}
+ #define FIRMWARE_SIENNA_CICHLID_DMUB "amdgpu/sienna_cichlid_dmcub.bin"
+ MODULE_FIRMWARE(FIRMWARE_SIENNA_CICHLID_DMUB);
+ #define FIRMWARE_NAVY_FLOUNDER_DMUB "amdgpu/navy_flounder_dmcub.bin"
+@@ -5293,7 +5426,7 @@ amdgpu_dm_register_backlight_device(struct amdgpu_dm_connector *aconnector)
+ 	struct backlight_properties props = { 0 };
+ 	struct amdgpu_dm_backlight_caps *caps;
+ 	char bl_name[16];
+-	int min, max;
++	int min = -1, max = -1;
+ 	int real_brightness;
+ 	int init_brightness;
+ 
+@@ -5301,6 +5434,11 @@ amdgpu_dm_register_backlight_device(struct amdgpu_dm_connector *aconnector)
+ 		return;
+ 
+ 	if (!acpi_video_backlight_use_native()) {
++		if (amdgpu_dm_is_imac20())
++			drm_info(drm,
++				 "iMac20 display debug: skipping DM backlight registration connector=%s bl_idx=%d native=%d\n",
++				 aconnector->base.name, aconnector->bl_idx,
++				 acpi_video_backlight_use_native());
+ 		drm_info(drm, "Skipping amdgpu DM backlight registration\n");
+ 		/* Try registering an ACPI video backlight device instead. */
+ 		acpi_video_register_backlight();
+@@ -5320,6 +5458,14 @@ amdgpu_dm_register_backlight_device(struct amdgpu_dm_connector *aconnector)
+ 	} else
+ 		props.brightness = props.max_brightness = MAX_BACKLIGHT_LEVEL;
+ 
++	if (amdgpu_dm_is_imac20())
++		drm_info(drm,
++			 "iMac20 display debug: registering DM backlight connector=%s bl_idx=%d min=%d max=%d init=%d caps_min=0x%x caps_max=0x%x aux=%d\n",
++			 aconnector->base.name, aconnector->bl_idx,
++			 min, max, props.brightness,
++			 caps->min_input_signal, caps->max_input_signal,
++			 aconnector->dc_link->backlight_control_type);
++
+ 	init_brightness = props.brightness;
+ 
+ 	if (caps->data_points && !(amdgpu_dc_debug_mask & DC_DISABLE_CUSTOM_BRIGHTNESS_CURVE)) {
+@@ -5352,6 +5498,13 @@ amdgpu_dm_register_backlight_device(struct amdgpu_dm_connector *aconnector)
+ 			dm->actual_brightness[aconnector->bl_idx] = real_brightness;
+ 			dm->brightness[aconnector->bl_idx] = real_brightness;
+ 		}
++		if (amdgpu_dm_is_imac20())
++			drm_info(drm,
++				 "iMac20 display debug: registered DM backlight connector=%s bl_idx=%d init=%d real=%d actual=%d target=%d\n",
++				 aconnector->base.name, aconnector->bl_idx,
++				 init_brightness, real_brightness,
++				 dm->actual_brightness[aconnector->bl_idx],
++				 dm->brightness[aconnector->bl_idx]);
+ 		drm_dbg_driver(drm, "DM: Registered Backlight device: %s\n", bl_name);
+ 	}
+ }
+@@ -5405,8 +5558,14 @@ static void setup_backlight_device(struct amdgpu_display_manager *dm,
+ 	int bl_idx = dm->num_of_edps;
+ 
+ 	if (!(link->connector_signal & (SIGNAL_TYPE_EDP | SIGNAL_TYPE_LVDS)) ||
+-	    link->type == dc_connection_none)
++	    link->type == dc_connection_none) {
++		if (amdgpu_dm_is_imac20())
++			drm_info(adev_to_drm(dm->adev),
++				 "iMac20 display debug: backlight setup skip connector=%s signal=%d type=%d\n",
++				 aconnector->base.name, link->connector_signal,
++				 link->type);
+ 		return;
++	}
+ 
+ 	if (dm->num_of_edps >= AMDGPU_DM_MAX_NUM_EDP) {
+ 		drm_warn(adev_to_drm(dm->adev), "Too much eDP connections, skipping backlight setup for additional eDPs\n");
+@@ -5419,6 +5578,16 @@ static void setup_backlight_device(struct amdgpu_display_manager *dm,
+ 	dm->backlight_link[bl_idx] = link;
+ 	dm->num_of_edps++;
+ 
++	if (amdgpu_dm_is_imac20()) {
++		caps = &dm->backlight_caps[aconnector->bl_idx];
++		drm_info(adev_to_drm(dm->adev),
++			 "iMac20 display debug: backlight setup connector=%s bl_idx=%d link=%d signal=%d type=%d min=0x%x max=0x%x caps_valid=%d aux=%d\n",
++			 aconnector->base.name, aconnector->bl_idx,
++			 link->link_index, link->connector_signal, link->type,
++			 caps->min_input_signal, caps->max_input_signal,
++			 caps->caps_valid, link->backlight_control_type);
++	}
++
+ 	update_connector_ext_caps(aconnector);
+ 	caps = &dm->backlight_caps[aconnector->bl_idx];
+ 
+@@ -8911,10 +9080,18 @@ static int amdgpu_dm_connector_get_modes(struct drm_connector *connector)
+ 	const struct drm_edid *drm_edid = amdgpu_dm_connector->drm_edid;
+ 	struct dc_link_settings *verified_link_cap = &dc_link->verified_link_cap;
+ 	const struct dc *dc = dc_link->dc;
++	int encoding = -1;
+ 
+ 	encoder = amdgpu_dm_connector_to_encoder(connector);
++	if (dc->link_srv)
++		encoding = dc->link_srv->dp_get_encoding_format(verified_link_cap);
+ 
+ 	if (!drm_edid) {
++		drm_info(connector->dev,
++			 "%s: using no-EDID fallback modes (signal=%d type=%d internal=%d aux=%d encoding=%d)\n",
++			 connector->name, dc_link->connector_signal,
++			 dc_link->type, dc_link->is_internal_display,
++			 dc_link->aux_mode, encoding);
+ 		amdgpu_dm_connector->num_modes =
+ 				drm_add_modes_noedid(connector, 640, 480);
+ 		if (dc->link_srv->dp_get_encoding_format(verified_link_cap) == DP_128b_132b_ENCODING)
+@@ -9244,6 +9421,12 @@ static int amdgpu_dm_connector_init(struct amdgpu_display_manager *dm,
+ 		link,
+ 		link_index);
+ 
++	drm_info(dm->ddev,
++		 "connector init: link=%u drm_type=%d signal=%d link_type=%d internal=%d aux=%d link_id=%d\n",
++		 link_index, connector_type, link->connector_signal,
++		 link->type, link->is_internal_display, link->aux_mode,
++		 link->link_id.id);
++
+ 	drm_connector_attach_encoder(
+ 		&aconnector->base, &aencoder->base);
+ 
+@@ -10879,8 +11062,11 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_state *state)
+ 	struct drm_connector_state *old_con_state = NULL, *new_con_state = NULL;
+ 	struct dm_crtc_state *dm_old_crtc_state, *dm_new_crtc_state;
+ 	int crtc_disable_count = 0;
++	bool imac20_log = amdgpu_dm_imac20_should_log_commit(state);
+ 
+ 	trace_amdgpu_dm_atomic_commit_tail_begin(state);
++	if (imac20_log)
++		amdgpu_dm_imac20_log_atomic_state(state, "tail-entry");
+ 
+ 	drm_atomic_helper_update_legacy_modeset_state(dev, state);
+ 	drm_dp_mst_atomic_wait_for_dependencies(state);
+@@ -10888,7 +11074,15 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_state *state)
+ 	dm_state = dm_atomic_get_new_state(state);
+ 	if (dm_state && dm_state->context) {
+ 		dc_state = dm_state->context;
++		if (imac20_log)
++			drm_info(dev,
++				 "iMac20 display debug: commit streams context=%p stream_count=%d\n",
++				 dc_state, dc_state->stream_count);
+ 		amdgpu_dm_commit_streams(state, dc_state);
++		if (imac20_log)
++			drm_info(dev,
++				 "iMac20 display debug: commit streams done context=%p stream_count=%d\n",
++				 dc_state, dc_state->stream_count);
+ 	}
+ 
+ 	amdgpu_dm_update_hdcp(state);
+@@ -11079,8 +11273,21 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_state *state)
+ 	for_each_new_crtc_in_state(state, crtc, new_crtc_state, j) {
+ 		dm_new_crtc_state = to_dm_crtc_state(new_crtc_state);
+ 
+-		if (dm_new_crtc_state->stream)
++		if (dm_new_crtc_state->stream) {
++			if (imac20_log)
++				drm_info(dev,
++					 "iMac20 display debug: commit planes start crtc=%s active=%d stream=%p wait_for_vblank=%d mode=%dx%d\n",
++					 crtc->name, new_crtc_state->active,
++					 dm_new_crtc_state->stream,
++					 wait_for_vblank,
++					 new_crtc_state->mode.hdisplay,
++					 new_crtc_state->mode.vdisplay);
+ 			amdgpu_dm_commit_planes(state, dev, dm, crtc, wait_for_vblank);
++			if (imac20_log)
++				drm_info(dev,
++					 "iMac20 display debug: commit planes done crtc=%s stream=%p\n",
++					 crtc->name, dm_new_crtc_state->stream);
++		}
+ 	}
+ 
+ 	/* Enable writeback */
+@@ -11113,9 +11320,20 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_state *state)
+ 
+ 	/* restore the backlight level */
+ 	for (i = 0; i < dm->num_of_edps; i++) {
++		if (imac20_log)
++			drm_info(dev,
++				 "iMac20 display debug: backlight restore check idx=%u dev=%p actual=%u target=%u\n",
++				 i, dm->backlight_dev[i],
++				 dm->actual_brightness[i], dm->brightness[i]);
++
+ 		if (dm->backlight_dev[i] &&
+-		    (dm->actual_brightness[i] != dm->brightness[i]))
++		    (dm->actual_brightness[i] != dm->brightness[i])) {
++			if (imac20_log)
++				drm_info(dev,
++					 "iMac20 display debug: backlight restore set idx=%u target=%u\n",
++					 i, dm->brightness[i]);
+ 			amdgpu_dm_backlight_set_level(dm, i, dm->brightness[i]);
++		}
+ 	}
+ 
+ 	/*
+@@ -11133,12 +11351,23 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_state *state)
+ 	spin_unlock_irqrestore(&adev_to_drm(adev)->event_lock, flags);
+ 
+ 	/* Signal HW programming completion */
++	if (imac20_log)
++		drm_info(dev, "iMac20 display debug: commit hw_done signal\n");
+ 	drm_atomic_helper_commit_hw_done(state);
+ 
+-	if (wait_for_vblank)
++	if (wait_for_vblank) {
++		if (imac20_log)
++			drm_info(dev, "iMac20 display debug: wait flip start\n");
+ 		drm_atomic_helper_wait_for_flip_done(dev, state);
++		if (imac20_log)
++			drm_info(dev, "iMac20 display debug: wait flip done\n");
++	}
+ 
++	if (imac20_log)
++		drm_info(dev, "iMac20 display debug: cleanup planes start\n");
+ 	drm_atomic_helper_cleanup_planes(dev, state);
++	if (imac20_log)
++		drm_info(dev, "iMac20 display debug: cleanup planes done\n");
+ 
+ 	/* Don't free the memory if we are hitting this as part of suspend.
+ 	 * This way we don't free any memory during suspend; see
+@@ -11161,6 +11390,8 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_state *state)
+ 		pm_runtime_put_autosuspend(dev->dev);
+ 	pm_runtime_mark_last_busy(dev->dev);
+ 
++	if (imac20_log)
++		amdgpu_dm_imac20_log_atomic_state(state, "tail-exit");
+ 	trace_amdgpu_dm_atomic_commit_tail_finish(state);
+ }
+ 
+@@ -11306,6 +11537,10 @@ static int do_aquire_global_lock(struct drm_device *dev,
+ 		if (ret == 0)
+ 			drm_err(dev, "[CRTC:%d:%s] hw_done or flip_done timed out\n",
+ 				  crtc->base.id, crtc->name);
++		else if (amdgpu_dm_is_imac20())
++			drm_info(dev,
++				 "iMac20 display debug: global lock commit wait done crtc=%s ret=%ld\n",
++				 crtc->name, ret);
+ 
+ 		drm_crtc_commit_put(commit);
+ 	}
+diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_helpers.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_helpers.c
+index a09761f..9fa52cf 100644
+--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_helpers.c
++++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_helpers.c
+@@ -1058,9 +1058,10 @@ enum dc_edid_status dm_helpers_read_local_edid(
+ 	} while ((edid_status == EDID_BAD_CHECKSUM || edid_status == EDID_NO_RESPONSE) && --retry > 0);
+ 
+ 	if (edid_status != EDID_OK)
+-		DRM_ERROR("EDID err: %d, on connector: %s",
+-				edid_status,
+-				aconnector->base.name);
++		DRM_ERROR("EDID err: %d, on connector: %s (signal=%d type=%d internal=%d aux=%d)\n",
++			  edid_status, aconnector->base.name,
++			  link->connector_signal, link->type,
++			  link->is_internal_display, link->aux_mode);
+ 	if (link->aux_mode) {
+ 		union test_request test_request = {0};
+ 		union test_response test_response = {0};
+diff --git a/drivers/gpu/drm/amd/display/dc/core/dc.c b/drivers/gpu/drm/amd/display/dc/core/dc.c
+index 3e87b6a..c30bd58 100644
+--- a/drivers/gpu/drm/amd/display/dc/core/dc.c
++++ b/drivers/gpu/drm/amd/display/dc/core/dc.c
+@@ -1779,6 +1779,45 @@ static bool streams_changed(struct dc *dc,
+ 	return false;
+ }
+ 
++static bool dc_log_boot_timing_failure(const struct dc *dc,
++				       const struct dc_link *link,
++				       const struct dc_sink *sink,
++				       const struct dc_crtc_timing *crtc_timing,
++				       unsigned int tg_inst,
++				       unsigned int enc_inst,
++				       const char *reason)
++{
++	DC_LOG_INFO("boot timing validation failed: link=%d signal=%d sink_signal=%d reason=%s req=%ux%u totals=%ux%u pix=%u tg=%u pref_tg=%d enc=%u\n",
++		    link->link_index, link->connector_signal, sink->sink_signal, reason,
++		    crtc_timing->h_addressable, crtc_timing->v_addressable,
++		    crtc_timing->h_total, crtc_timing->v_total,
++		    crtc_timing->pix_clk_100hz, tg_inst,
++		    link->link_enc ? link->link_enc->preferred_engine : -1, enc_inst);
++
++	return false;
++}
++
++static bool dc_log_boot_timing_mismatch(const struct dc *dc,
++					const struct dc_link *link,
++					const struct dc_sink *sink,
++					const struct dc_crtc_timing *crtc_timing,
++					unsigned int tg_inst,
++					unsigned int enc_inst,
++					const char *field,
++					unsigned int requested,
++					unsigned int hw)
++{
++	DC_LOG_INFO("boot timing validation failed: link=%d signal=%d sink_signal=%d reason=%s-mismatch req=%u hw=%u mode=%ux%u totals=%ux%u pix=%u tg=%u pref_tg=%d enc=%u\n",
++		    link->link_index, link->connector_signal, sink->sink_signal, field,
++		    requested, hw,
++		    crtc_timing->h_addressable, crtc_timing->v_addressable,
++		    crtc_timing->h_total, crtc_timing->v_total,
++		    crtc_timing->pix_clk_100hz, tg_inst,
++		    link->link_enc ? link->link_enc->preferred_engine : -1, enc_inst);
++
++	return false;
++}
++
+ bool dc_validate_boot_timing(const struct dc *dc,
+ 				const struct dc_sink *sink,
+ 				struct dc_crtc_timing *crtc_timing)
+@@ -1789,29 +1828,36 @@ bool dc_validate_boot_timing(const struct dc *dc,
+ 	struct dc_crtc_timing hw_crtc_timing = {0};
+ 
+ 	struct dc_link *link = sink->link;
+-	unsigned int i, enc_inst, tg_inst = 0;
++	unsigned int i, enc_inst = 0, tg_inst = 0;
+ 
+ 	/* Support seamless boot on EDP displays only */
+-	if (sink->sink_signal != SIGNAL_TYPE_EDP) {
+-		return false;
+-	}
++	if (sink->sink_signal != SIGNAL_TYPE_EDP)
++		return dc_log_boot_timing_failure(dc, link, sink, crtc_timing,
++						 tg_inst, enc_inst,
++						 "non-edp-sink");
+ 
+ 	if (dc->debug.force_odm_combine) {
+ 		DC_LOG_DEBUG("boot timing validation failed due to force_odm_combine\n");
+-		return false;
++		return dc_log_boot_timing_failure(dc, link, sink, crtc_timing,
++						 tg_inst, enc_inst,
++						 "force-odm-combine");
+ 	}
+ 
+ 	/* Check for enabled DIG to identify enabled display */
+ 	if (!link->link_enc->funcs->is_dig_enabled(link->link_enc)) {
+ 		DC_LOG_DEBUG("boot timing validation failed due to disabled DIG\n");
+-		return false;
++		return dc_log_boot_timing_failure(dc, link, sink, crtc_timing,
++						 tg_inst, enc_inst,
++						 "disabled-dig");
+ 	}
+ 
+ 	enc_inst = link->link_enc->funcs->get_dig_frontend(link->link_enc);
+ 
+ 	if (enc_inst == ENGINE_ID_UNKNOWN) {
+ 		DC_LOG_DEBUG("boot timing validation failed due to unknown DIG engine ID\n");
+-		return false;
++		return dc_log_boot_timing_failure(dc, link, sink, crtc_timing,
++						 tg_inst, enc_inst,
++						 "unknown-dig-engine");
+ 	}
+ 
+ 	for (i = 0; i < dc->res_pool->stream_enc_count; i++) {
+@@ -1828,95 +1874,143 @@ bool dc_validate_boot_timing(const struct dc *dc,
+ 	// tg_inst not found
+ 	if (i == dc->res_pool->stream_enc_count) {
+ 		DC_LOG_DEBUG("boot timing validation failed due to timing generator instance not found\n");
+-		return false;
++		return dc_log_boot_timing_failure(dc, link, sink, crtc_timing,
++						 tg_inst, enc_inst,
++						 "stream-encoder-not-found");
+ 	}
+ 
+ 	if (tg_inst >= dc->res_pool->timing_generator_count) {
+ 		DC_LOG_DEBUG("boot timing validation failed due to invalid timing generator count\n");
+-		return false;
++		return dc_log_boot_timing_failure(dc, link, sink, crtc_timing,
++						 tg_inst, enc_inst,
++						 "invalid-timing-generator");
+ 	}
+ 
+ 	if (tg_inst != link->link_enc->preferred_engine) {
+ 		DC_LOG_DEBUG("boot timing validation failed due to non-preferred timing generator\n");
+-		return false;
++		return dc_log_boot_timing_failure(dc, link, sink, crtc_timing,
++						 tg_inst, enc_inst,
++						 "non-preferred-timing-generator");
+ 	}
+ 
+ 	tg = dc->res_pool->timing_generators[tg_inst];
+ 
+ 	if (!tg->funcs->get_hw_timing) {
+ 		DC_LOG_DEBUG("boot timing validation failed due to missing get_hw_timing callback\n");
+-		return false;
++		return dc_log_boot_timing_failure(dc, link, sink, crtc_timing,
++						 tg_inst, enc_inst,
++						 "missing-get-hw-timing");
+ 	}
+ 
+ 	if (!tg->funcs->get_hw_timing(tg, &hw_crtc_timing)) {
+ 		DC_LOG_DEBUG("boot timing validation failed due to failed get_hw_timing return\n");
+-		return false;
++		return dc_log_boot_timing_failure(dc, link, sink, crtc_timing,
++						 tg_inst, enc_inst,
++						 "get-hw-timing-failed");
+ 	}
+ 
+ 	if (crtc_timing->h_total != hw_crtc_timing.h_total) {
+ 		DC_LOG_DEBUG("boot timing validation failed due to h_total mismatch\n");
+-		return false;
++		return dc_log_boot_timing_mismatch(dc, link, sink, crtc_timing,
++						  tg_inst, enc_inst, "h_total",
++						  crtc_timing->h_total,
++						  hw_crtc_timing.h_total);
+ 	}
+ 
+ 	if (crtc_timing->h_border_left != hw_crtc_timing.h_border_left) {
+ 		DC_LOG_DEBUG("boot timing validation failed due to h_border_left mismatch\n");
+-		return false;
++		return dc_log_boot_timing_mismatch(dc, link, sink, crtc_timing,
++						  tg_inst, enc_inst, "h_border_left",
++						  crtc_timing->h_border_left,
++						  hw_crtc_timing.h_border_left);
+ 	}
+ 
+ 	if (crtc_timing->h_addressable != hw_crtc_timing.h_addressable) {
+ 		DC_LOG_DEBUG("boot timing validation failed due to h_addressable mismatch\n");
+-		return false;
++		return dc_log_boot_timing_mismatch(dc, link, sink, crtc_timing,
++						  tg_inst, enc_inst, "h_addressable",
++						  crtc_timing->h_addressable,
++						  hw_crtc_timing.h_addressable);
+ 	}
+ 
+ 	if (crtc_timing->h_border_right != hw_crtc_timing.h_border_right) {
+ 		DC_LOG_DEBUG("boot timing validation failed due to h_border_right mismatch\n");
+-		return false;
++		return dc_log_boot_timing_mismatch(dc, link, sink, crtc_timing,
++						  tg_inst, enc_inst, "h_border_right",
++						  crtc_timing->h_border_right,
++						  hw_crtc_timing.h_border_right);
+ 	}
+ 
+ 	if (crtc_timing->h_front_porch != hw_crtc_timing.h_front_porch) {
+ 		DC_LOG_DEBUG("boot timing validation failed due to h_front_porch mismatch\n");
+-		return false;
++		return dc_log_boot_timing_mismatch(dc, link, sink, crtc_timing,
++						  tg_inst, enc_inst, "h_front_porch",
++						  crtc_timing->h_front_porch,
++						  hw_crtc_timing.h_front_porch);
+ 	}
+ 
+ 	if (crtc_timing->h_sync_width != hw_crtc_timing.h_sync_width) {
+ 		DC_LOG_DEBUG("boot timing validation failed due to h_sync_width mismatch\n");
+-		return false;
++		return dc_log_boot_timing_mismatch(dc, link, sink, crtc_timing,
++						  tg_inst, enc_inst, "h_sync_width",
++						  crtc_timing->h_sync_width,
++						  hw_crtc_timing.h_sync_width);
+ 	}
+ 
+ 	if (crtc_timing->v_total != hw_crtc_timing.v_total) {
+ 		DC_LOG_DEBUG("boot timing validation failed due to v_total mismatch\n");
+-		return false;
++		return dc_log_boot_timing_mismatch(dc, link, sink, crtc_timing,
++						  tg_inst, enc_inst, "v_total",
++						  crtc_timing->v_total,
++						  hw_crtc_timing.v_total);
+ 	}
+ 
+ 	if (crtc_timing->v_border_top != hw_crtc_timing.v_border_top) {
+ 		DC_LOG_DEBUG("boot timing validation failed due to v_border_top mismatch\n");
+-		return false;
++		return dc_log_boot_timing_mismatch(dc, link, sink, crtc_timing,
++						  tg_inst, enc_inst, "v_border_top",
++						  crtc_timing->v_border_top,
++						  hw_crtc_timing.v_border_top);
+ 	}
+ 
+ 	if (crtc_timing->v_addressable != hw_crtc_timing.v_addressable) {
+ 		DC_LOG_DEBUG("boot timing validation failed due to v_addressable mismatch\n");
+-		return false;
++		return dc_log_boot_timing_mismatch(dc, link, sink, crtc_timing,
++						  tg_inst, enc_inst, "v_addressable",
++						  crtc_timing->v_addressable,
++						  hw_crtc_timing.v_addressable);
+ 	}
+ 
+ 	if (crtc_timing->v_border_bottom != hw_crtc_timing.v_border_bottom) {
+ 		DC_LOG_DEBUG("boot timing validation failed due to v_border_bottom mismatch\n");
+-		return false;
++		return dc_log_boot_timing_mismatch(dc, link, sink, crtc_timing,
++						  tg_inst, enc_inst, "v_border_bottom",
++						  crtc_timing->v_border_bottom,
++						  hw_crtc_timing.v_border_bottom);
+ 	}
+ 
+ 	if (crtc_timing->v_front_porch != hw_crtc_timing.v_front_porch) {
+ 		DC_LOG_DEBUG("boot timing validation failed due to v_front_porch mismatch\n");
+-		return false;
++		return dc_log_boot_timing_mismatch(dc, link, sink, crtc_timing,
++						  tg_inst, enc_inst, "v_front_porch",
++						  crtc_timing->v_front_porch,
++						  hw_crtc_timing.v_front_porch);
+ 	}
+ 
+ 	if (crtc_timing->v_sync_width != hw_crtc_timing.v_sync_width) {
+ 		DC_LOG_DEBUG("boot timing validation failed due to v_sync_width mismatch\n");
+-		return false;
++		return dc_log_boot_timing_mismatch(dc, link, sink, crtc_timing,
++						  tg_inst, enc_inst, "v_sync_width",
++						  crtc_timing->v_sync_width,
++						  hw_crtc_timing.v_sync_width);
+ 	}
+ 
+ 	/* block DSC for now, as VBIOS does not currently support DSC timings */
+ 	if (crtc_timing->flags.DSC) {
+ 		DC_LOG_DEBUG("boot timing validation failed due to DSC\n");
+-		return false;
++		return dc_log_boot_timing_failure(dc, link, sink, crtc_timing,
++						 tg_inst, enc_inst,
++						 "dsc-enabled");
+ 	}
+ 
+ 	if (dc_is_dp_signal(link->connector_signal)) {
+@@ -1932,6 +2026,11 @@ bool dc_validate_boot_timing(const struct dc *dc,
+ 			tg->funcs->get_optc_source(tg,
+ 						&numOdmPipes, &id_src[0], &id_src[1]);
+ 
++		DC_LOG_INFO("boot timing validation odm state: link=%d signal=%d tg=%u enc=%u num_pipes=%u src0=%u src1=%u requested_pix=%u\n",
++			    link->link_index, link->connector_signal,
++			    tg_inst, enc_inst, numOdmPipes,
++			    id_src[0], id_src[1], crtc_timing->pix_clk_100hz);
++
+ 		if (numOdmPipes == 2) {
+ 			pix_clk_100hz *= 2;
+ 		} else if (numOdmPipes == 4) {
+@@ -1941,7 +2040,9 @@ bool dc_validate_boot_timing(const struct dc *dc,
+ 
+ 			if (pixels_per_cycle != 1 && !dc->debug.enable_dp_dig_pixel_rate_div_policy) {
+ 				DC_LOG_DEBUG("boot timing validation failed due to pixels_per_cycle\n");
+-				return false;
++				return dc_log_boot_timing_failure(dc, link, sink, crtc_timing,
++							 tg_inst, enc_inst,
++							 "pixels-per-cycle");
+ 			}
+ 
+ 			pix_clk_100hz *= pixels_per_cycle;
+@@ -1951,12 +2052,17 @@ bool dc_validate_boot_timing(const struct dc *dc,
+ 		// slightly due to rounding issues in 10 kHz units.
+ 		if (crtc_timing->pix_clk_100hz != pix_clk_100hz) {
+ 			DC_LOG_DEBUG("boot timing validation failed due to pix_clk_100hz mismatch\n");
+-			return false;
++			return dc_log_boot_timing_mismatch(dc, link, sink, crtc_timing,
++						  tg_inst, enc_inst, "pix_clk_100hz",
++						  crtc_timing->pix_clk_100hz,
++						  pix_clk_100hz);
+ 		}
+ 
+ 		if (!se || !se->funcs->dp_get_pixel_format) {
+ 			DC_LOG_DEBUG("boot timing validation failed due to missing dp_get_pixel_format\n");
+-			return false;
++			return dc_log_boot_timing_failure(dc, link, sink, crtc_timing,
++						 tg_inst, enc_inst,
++						 "missing-dp-get-pixel-format");
+ 		}
+ 
+ 		if (!se->funcs->dp_get_pixel_format(
+@@ -1964,36 +2070,56 @@ bool dc_validate_boot_timing(const struct dc *dc,
+ 			&hw_crtc_timing.pixel_encoding,
+ 			&hw_crtc_timing.display_color_depth)) {
+ 			DC_LOG_DEBUG("boot timing validation failed due to dp_get_pixel_format failure\n");
+-			return false;
++			return dc_log_boot_timing_failure(dc, link, sink, crtc_timing,
++						 tg_inst, enc_inst,
++						 "dp-get-pixel-format-failed");
+ 		}
+ 
+ 		if (hw_crtc_timing.display_color_depth != crtc_timing->display_color_depth) {
+ 			DC_LOG_DEBUG("boot timing validation failed due to display_color_depth mismatch\n");
+-			return false;
++			return dc_log_boot_timing_mismatch(dc, link, sink, crtc_timing,
++						  tg_inst, enc_inst, "display_color_depth",
++						  crtc_timing->display_color_depth,
++						  hw_crtc_timing.display_color_depth);
+ 		}
+ 
+ 		if (hw_crtc_timing.pixel_encoding != crtc_timing->pixel_encoding) {
+ 			DC_LOG_DEBUG("boot timing validation failed due to pixel_encoding mismatch\n");
+-			return false;
++			return dc_log_boot_timing_mismatch(dc, link, sink, crtc_timing,
++						  tg_inst, enc_inst, "pixel_encoding",
++						  crtc_timing->pixel_encoding,
++						  hw_crtc_timing.pixel_encoding);
+ 		}
+ 	}
+ 
+ 
+ 	if (link->dpcd_caps.dprx_feature.bits.VSC_SDP_COLORIMETRY_SUPPORTED) {
+ 		DC_LOG_DEBUG("boot timing validation failed due to VSC SDP colorimetry\n");
+-		return false;
++		return dc_log_boot_timing_failure(dc, link, sink, crtc_timing,
++						 tg_inst, enc_inst,
++						 "vsc-sdp-colorimetry");
+ 	}
+ 
+ 	if (link->dpcd_caps.channel_coding_cap.bits.DP_128b_132b_SUPPORTED) {
+ 		DC_LOG_DEBUG("boot timing validation failed due to DP 128b/132b\n");
+-		return false;
++		return dc_log_boot_timing_failure(dc, link, sink, crtc_timing,
++						 tg_inst, enc_inst,
++						 "dp-128b-132b");
+ 	}
+ 
+ 	if (dc->link_srv->edp_is_ilr_optimization_required(link, crtc_timing)) {
+ 		DC_LOG_EVENT_LINK_TRAINING("Seamless boot disabled to optimize eDP link rate\n");
+-		return false;
++		return dc_log_boot_timing_failure(dc, link, sink, crtc_timing,
++						 tg_inst, enc_inst,
++						 "ilr-optimization-required");
+ 	}
+ 
++	DC_LOG_INFO("boot timing validation passed: link=%d signal=%d sink_signal=%d mode=%ux%u totals=%ux%u pix=%u tg=%u enc=%u\n",
++		    link->link_index, link->connector_signal, sink->sink_signal,
++		    crtc_timing->h_addressable, crtc_timing->v_addressable,
++		    crtc_timing->h_total, crtc_timing->v_total,
++		    crtc_timing->pix_clk_100hz, tg_inst, enc_inst);
++
+ 	return true;
+ }
+ 
+@@ -3464,6 +3590,12 @@ static void backup_and_set_minimal_pipe_split_policy(struct dc *dc,
+ {
+ 	int i;
+ 
++	DC_LOG_INFO("%s streams=%d pipe_split=%d dynamic_odm=%d force_disable_subvp=%d\n",
++		    __func__, context->stream_count,
++		    dc->debug.pipe_split_policy,
++		    dc->debug.enable_single_display_2to1_odm_policy,
++		    dc->debug.force_disable_subvp);
++
+ 	if (!dc->config.is_vmin_only_asic) {
+ 		policy->mpc_policy = dc->debug.pipe_split_policy;
+ 		dc->debug.pipe_split_policy = MPC_SPLIT_AVOID;
+@@ -7554,4 +7686,3 @@ bool dc_update_planes_and_stream_cleanup(
+ 			? update_planes_and_stream_cleanup_v3(scratch)
+ 			: update_planes_and_stream_cleanup_v2(scratch);
+ }
+-
+diff --git a/drivers/gpu/drm/amd/display/dc/core/dc_resource.c b/drivers/gpu/drm/amd/display/dc/core/dc_resource.c
+index 8ee04b7..58cf841 100644
+--- a/drivers/gpu/drm/amd/display/dc/core/dc_resource.c
++++ b/drivers/gpu/drm/amd/display/dc/core/dc_resource.c
+@@ -3735,15 +3735,27 @@ static int acquire_resource_from_hw_enabled_state(
+ 	unsigned int i, inst, tg_inst = 0;
+ 	uint32_t numPipes = 1;
+ 	uint32_t id_src[4] = {0};
++	bool log_internal_boot = stream->sink &&
++		stream->sink->sink_signal == SIGNAL_TYPE_EDP;
+ 
+ 	/* Check for enabled DIG to identify enabled display */
+-	if (!link->link_enc->funcs->is_dig_enabled(link->link_enc))
++	if (!link->link_enc->funcs->is_dig_enabled(link->link_enc)) {
++		if (log_internal_boot)
++			drm_info(link->ctx->logger->dev,
++				 "boot hw state unavailable: link=%d signal=%d reason=disabled-dig\n",
++				 link->link_index, link->connector_signal);
+ 		return -1;
++	}
+ 
+ 	inst = link->link_enc->funcs->get_dig_frontend(link->link_enc);
+ 
+-	if (inst == ENGINE_ID_UNKNOWN)
++	if (inst == ENGINE_ID_UNKNOWN) {
++		if (log_internal_boot)
++			drm_info(link->ctx->logger->dev,
++				 "boot hw state unavailable: link=%d signal=%d reason=unknown-dig-frontend\n",
++				 link->link_index, link->connector_signal);
+ 		return -1;
++	}
+ 
+ 	for (i = 0; i < pool->stream_enc_count; i++) {
+ 		if (pool->stream_enc[i]->id == inst) {
+@@ -3754,11 +3766,22 @@ static int acquire_resource_from_hw_enabled_state(
+ 	}
+ 
+ 	// tg_inst not found
+-	if (i == pool->stream_enc_count)
++	if (i == pool->stream_enc_count) {
++		if (log_internal_boot)
++			drm_info(link->ctx->logger->dev,
++				 "boot hw state unavailable: link=%d signal=%d reason=stream-encoder-not-found enc=%u\n",
++				 link->link_index, link->connector_signal, inst);
+ 		return -1;
++	}
+ 
+-	if (tg_inst >= pool->timing_generator_count)
++	if (tg_inst >= pool->timing_generator_count) {
++		if (log_internal_boot)
++			drm_info(link->ctx->logger->dev,
++				 "boot hw state unavailable: link=%d signal=%d reason=invalid-tg tg=%u tg_count=%u\n",
++				 link->link_index, link->connector_signal,
++				 tg_inst, pool->timing_generator_count);
+ 		return -1;
++	}
+ 
+ 	if (!res_ctx->pipe_ctx[tg_inst].stream) {
+ 		struct pipe_ctx *pipe_ctx = &res_ctx->pipe_ctx[tg_inst];
+@@ -3777,8 +3800,14 @@ static int acquire_resource_from_hw_enabled_state(
+ 
+ 		for (i = 0; i < numPipes; i++) {
+ 			//Check if src id invalid
+-			if (id_src[i] == 0xf)
++			if (id_src[i] == 0xf) {
++				if (log_internal_boot)
++					drm_info(link->ctx->logger->dev,
++						 "boot hw state unavailable: link=%d signal=%d reason=invalid-optc-source tg=%u src_idx=%u num_pipes=%u\n",
++						 link->link_index, link->connector_signal,
++						 tg_inst, i, numPipes);
+ 				return -1;
++			}
+ 
+ 			pipe_ctx = &res_ctx->pipe_ctx[id_src[i]];
+ 
+@@ -3831,9 +3860,21 @@ static int acquire_resource_from_hw_enabled_state(
+ 		} else
+ 			stream->apply_boot_odm_mode = dm_odm_combine_mode_disabled;
+ 
++		if (log_internal_boot)
++			drm_info(link->ctx->logger->dev,
++				 "boot hw state acquired: link=%d signal=%d tg=%u enc=%u num_pipes=%u src0=%u src1=%u boot_odm_mode=%u preferred_engine=%d\n",
++				 link->link_index, link->connector_signal, tg_inst, inst,
++				 numPipes, id_src[0], id_src[1], stream->apply_boot_odm_mode,
++				 link->link_enc->preferred_engine);
++
+ 		return id_src[0];
+ 	}
+ 
++	if (log_internal_boot)
++		drm_info(link->ctx->logger->dev,
++			 "boot hw state unavailable: link=%d signal=%d reason=tg-already-occupied tg=%u\n",
++			 link->link_index, link->connector_signal, tg_inst);
++
+ 	return -1;
+ }
+ 
+@@ -3841,18 +3882,41 @@ static void mark_seamless_boot_stream(const struct dc  *dc,
+ 				      struct dc_stream_state *stream)
+ {
+ 	struct dc_bios *dcb = dc->ctx->dc_bios;
++	bool log_internal_boot = stream->sink &&
++		stream->sink->sink_signal == SIGNAL_TYPE_EDP;
+ 
+ 	DC_LOGGER_INIT(dc->ctx->logger);
+ 
+-	if (stream->apply_seamless_boot_optimization)
++	if (stream->apply_seamless_boot_optimization) {
++		if (log_internal_boot)
++			DC_LOG_INFO("seamless boot skip: link=%d signal=%d reason=already-marked\n",
++				    stream->link->link_index, stream->signal);
+ 		return;
+-	if (!dc->config.allow_seamless_boot_optimization)
++	}
++	if (!dc->config.allow_seamless_boot_optimization) {
++		if (log_internal_boot)
++			DC_LOG_INFO("seamless boot skip: link=%d signal=%d reason=config-disabled\n",
++				    stream->link->link_index, stream->signal);
+ 		return;
+-	if (dcb->funcs->is_accelerated_mode(dcb))
++	}
++	if (dcb->funcs->is_accelerated_mode(dcb)) {
++		if (log_internal_boot)
++			DC_LOG_INFO("seamless boot skip: link=%d signal=%d reason=already-accelerated\n",
++				    stream->link->link_index, stream->signal);
+ 		return;
++	}
+ 	if (dc_validate_boot_timing(dc, stream->sink, &stream->timing)) {
+ 		stream->apply_seamless_boot_optimization = true;
+ 		DC_LOG_DC("Marked stream for seamless boot optimization\n");
++		if (log_internal_boot)
++			DC_LOG_INFO("seamless boot marked: link=%d signal=%d mode=%ux%u totals=%ux%u pix=%u\n",
++				    stream->link->link_index, stream->signal,
++				    stream->timing.h_addressable, stream->timing.v_addressable,
++				    stream->timing.h_total, stream->timing.v_total,
++				    stream->timing.pix_clk_100hz);
++	} else if (log_internal_boot) {
++		DC_LOG_INFO("seamless boot skip: link=%d signal=%d reason=boot-timing-rejected\n",
++			    stream->link->link_index, stream->signal);
+ 	}
+ }
+ 
+diff --git a/drivers/gpu/drm/amd/display/dc/link/link_detection.c b/drivers/gpu/drm/amd/display/dc/link/link_detection.c
+index b2c0200..102ce3e 100644
+--- a/drivers/gpu/drm/amd/display/dc/link/link_detection.c
++++ b/drivers/gpu/drm/amd/display/dc/link/link_detection.c
+@@ -978,6 +978,7 @@ static bool detect_link_and_local_sink(struct dc_link *link,
+ 	struct dc_sink *sink = NULL;
+ 	struct dc_sink *prev_sink = NULL;
+ 	struct dpcd_caps prev_dpcd_caps;
++	enum dc_connection_type pre_link_type = link->type;
+ 	enum dc_connection_type new_connection_type = dc_connection_none;
+ 	const uint32_t post_oui_delay = 30; // 30ms
+ 
+@@ -1006,6 +1007,10 @@ static bool detect_link_and_local_sink(struct dc_link *link,
+ 		return false;
+ 	}
+ 
++	DC_LOG_INFO("link=%d detect start: signal=%d reason=%d pre_type=%d new_type=%d internal=%d\n",
++		    link->link_index, link->connector_signal, reason,
++		    pre_link_type, new_connection_type, link->is_internal_display);
++
+ 	prev_sink = link->local_sink;
+ 	if (prev_sink) {
+ 		dc_sink_retain(prev_sink);
+@@ -1226,6 +1231,12 @@ static bool detect_link_and_local_sink(struct dc_link *link,
+ 				return true;
+ 			}
+ 
++			DC_LOG_INFO("link=%d continuing without EDID: signal=%d type=%d reason=%d sink_signal=%d internal=%d sink_count=%d\n",
++				    link->link_index, link->connector_signal,
++				    link->type, reason, sink_caps.signal,
++				    link->is_internal_display,
++				    link->dpcd_sink_count);
++
+ 			break;
+ 		default:
+ 			break;
+diff --git a/drivers/gpu/drm/amd/display/dc/link/link_factory.c b/drivers/gpu/drm/amd/display/dc/link/link_factory.c
+index 45ba19f..296757d 100644
+--- a/drivers/gpu/drm/amd/display/dc/link/link_factory.c
++++ b/drivers/gpu/drm/amd/display/dc/link/link_factory.c
+@@ -534,7 +534,9 @@ static bool construct_phy(struct dc_link *link,
+ 	if (bios->funcs->get_disp_connector_caps_info) {
+ 		bios->funcs->get_disp_connector_caps_info(bios, link->link_id, &disp_connect_caps_info);
+ 		link->is_internal_display = disp_connect_caps_info.INTERNAL_DISPLAY;
+-		DC_LOG_DC("BIOS object table - is_internal_display: %d", link->is_internal_display);
++		DC_LOG_INFO("link=%d bios caps: link_id=%d internal=%d\n",
++			    link->link_index, link->link_id.id,
++			    link->is_internal_display);
+ 	}
+ 
+ 	if (is_apple_imac20_5k() &&
+diff --git a/drivers/gpu/drm/amd/display/dc/link/protocols/link_edp_panel_control.c b/drivers/gpu/drm/amd/display/dc/link/protocols/link_edp_panel_control.c
+index 34c5429..b534119 100644
+--- a/drivers/gpu/drm/amd/display/dc/link/protocols/link_edp_panel_control.c
++++ b/drivers/gpu/drm/amd/display/dc/link/protocols/link_edp_panel_control.c
+@@ -154,9 +154,20 @@ enum dp_panel_mode dp_get_panel_mode(struct dc_link *link)
+ 		(link->connector_signal == SIGNAL_TYPE_EDP ||
+ 		 (link->connector_signal == SIGNAL_TYPE_DISPLAY_PORT &&
+ 		  link->is_internal_display))) {
++		DC_LOG_INFO("link=%d dp_get_panel_mode: signal=%d internal=%d panel_mode_edp=%d branch=0x%x selected=%d\n",
++			    link->link_index, link->connector_signal,
++			    link->is_internal_display,
++			    link->dpcd_caps.panel_mode_edp,
++			    link->dpcd_caps.branch_dev_id, DP_PANEL_MODE_EDP);
+ 		return DP_PANEL_MODE_EDP;
+ 	}
+ 
++	DC_LOG_INFO("link=%d dp_get_panel_mode: signal=%d internal=%d panel_mode_edp=%d branch=0x%x selected=%d\n",
++		    link->link_index, link->connector_signal,
++		    link->is_internal_display,
++		    link->dpcd_caps.panel_mode_edp,
++		    link->dpcd_caps.branch_dev_id, DP_PANEL_MODE_DEFAULT);
++
+ 	if (is_apple_imac20_5k() &&
+ 	    link->link_index == 0 &&
+ 	    link->connector_signal == SIGNAL_TYPE_EDP) {
+@@ -419,39 +430,102 @@ void edp_panel_backlight_power_on(struct dc_link *link, bool wait_for_hpd)
+ 	if (link->connector_signal != SIGNAL_TYPE_EDP)
+ 		return;
+ 
++	if (is_apple_imac20_5k())
++		pr_info("amdgpu: iMac20 eDP power debug: backlight_power_on begin link=%d wait_for_hpd=%d no_power_seq=%d bl_ctrl=%p\n",
++			link->link_index, wait_for_hpd,
++			link->dc->config.edp_no_power_sequencing,
++			link->dc->hwss.edp_backlight_control);
++
++	if (is_apple_imac20_5k())
++		pr_info("amdgpu: iMac20 eDP power debug: VDD on link=%d\n",
++			link->link_index);
+ 	link->dc->hwss.edp_power_control(link, true);
+-	if (wait_for_hpd)
++	if (wait_for_hpd) {
++		if (is_apple_imac20_5k())
++			pr_info("amdgpu: iMac20 eDP power debug: wait HPD ready begin link=%d\n",
++				link->link_index);
+ 		link->dc->hwss.edp_wait_for_hpd_ready(link, true);
++		if (is_apple_imac20_5k())
++			pr_info("amdgpu: iMac20 eDP power debug: wait HPD ready done link=%d\n",
++				link->link_index);
++	}
+ 	if (link->dc->hwss.edp_backlight_control)
+ 		link->dc->hwss.edp_backlight_control(link, true);
++	if (is_apple_imac20_5k())
++		pr_info("amdgpu: iMac20 eDP power debug: backlight_power_on done link=%d\n",
++			link->link_index);
+ }
+ 
+ void edp_set_panel_power(struct dc_link *link, bool powerOn)
+ {
++	if (is_apple_imac20_5k())
++		pr_info("amdgpu: iMac20 eDP power debug: set_panel_power begin link=%d power=%d signal=%d no_power_seq=%d bl_ctrl=%p\n",
++			link->link_index, powerOn, link->connector_signal,
++			link->dc->config.edp_no_power_sequencing,
++			link->dc->hwss.edp_backlight_control);
++
+ 	if (powerOn) {
+ 		// 1. panel VDD on
+-		if (!link->dc->config.edp_no_power_sequencing)
++		if (!link->dc->config.edp_no_power_sequencing) {
++			if (is_apple_imac20_5k())
++				pr_info("amdgpu: iMac20 eDP power debug: set_panel_power VDD on link=%d\n",
++					link->link_index);
+ 			link->dc->hwss.edp_power_control(link, true);
++		}
++		if (is_apple_imac20_5k())
++			pr_info("amdgpu: iMac20 eDP power debug: set_panel_power wait HPD begin link=%d\n",
++				link->link_index);
+ 		link->dc->hwss.edp_wait_for_hpd_ready(link, true);
++		if (is_apple_imac20_5k())
++			pr_info("amdgpu: iMac20 eDP power debug: set_panel_power wait HPD done link=%d\n",
++				link->link_index);
+ 
+ 		// 2. panel BL on
+-		if (link->dc->hwss.edp_backlight_control)
++		if (link->dc->hwss.edp_backlight_control) {
++			if (is_apple_imac20_5k())
++				pr_info("amdgpu: iMac20 eDP power debug: set_panel_power backlight on link=%d\n",
++					link->link_index);
+ 			link->dc->hwss.edp_backlight_control(link, true);
++		}
+ 
+ 		// 3. Rx power on
++		if (is_apple_imac20_5k())
++			pr_info("amdgpu: iMac20 eDP power debug: set_panel_power RX on begin link=%d\n",
++				link->link_index);
+ 		dpcd_write_rx_power_ctrl(link, true);
++		if (is_apple_imac20_5k())
++			pr_info("amdgpu: iMac20 eDP power debug: set_panel_power RX on done link=%d\n",
++				link->link_index);
+ 	} else {
+ 		// 3. Rx power off
++		if (is_apple_imac20_5k())
++			pr_info("amdgpu: iMac20 eDP power debug: set_panel_power RX off begin link=%d\n",
++				link->link_index);
+ 		dpcd_write_rx_power_ctrl(link, false);
++		if (is_apple_imac20_5k())
++			pr_info("amdgpu: iMac20 eDP power debug: set_panel_power RX off done link=%d\n",
++				link->link_index);
+ 
+ 		// 2. panel BL off
+-		if (link->dc->hwss.edp_backlight_control)
++		if (link->dc->hwss.edp_backlight_control) {
++			if (is_apple_imac20_5k())
++				pr_info("amdgpu: iMac20 eDP power debug: set_panel_power backlight off link=%d\n",
++					link->link_index);
+ 			link->dc->hwss.edp_backlight_control(link, false);
++		}
+ 
+ 		// 1. panel VDD off
+-		if (!link->dc->config.edp_no_power_sequencing)
++		if (!link->dc->config.edp_no_power_sequencing) {
++			if (is_apple_imac20_5k())
++				pr_info("amdgpu: iMac20 eDP power debug: set_panel_power VDD off link=%d\n",
++					link->link_index);
+ 			link->dc->hwss.edp_power_control(link, false);
++		}
+ 	}
++
++	if (is_apple_imac20_5k())
++		pr_info("amdgpu: iMac20 eDP power debug: set_panel_power done link=%d power=%d\n",
++			link->link_index, powerOn);
+ }
+ 
+ bool edp_wait_for_t12(struct dc_link *link)
+diff --git a/drivers/gpu/drm/amd/pm/swsmu/amdgpu_smu.c b/drivers/gpu/drm/amd/pm/swsmu/amdgpu_smu.c
+index b05c8bb..a2fb69d 100644
+--- a/drivers/gpu/drm/amd/pm/swsmu/amdgpu_smu.c
++++ b/drivers/gpu/drm/amd/pm/swsmu/amdgpu_smu.c
+@@ -1787,15 +1787,23 @@ static int smu_smc_hw_setup(struct smu_context *smu)
+ 		pcie_width = 2;
+ 	else if (adev->pm.pcie_mlw_mask & CAIL_PCIE_LINK_WIDTH_SUPPORT_X1)
+ 		pcie_width = 1;
++	dev_info(adev->dev,
++		 "SMU init pcie override request: gen=%u width=%u gen_mask=0x%08x width_mask=0x%08x\n",
++		 pcie_gen, pcie_width, adev->pm.pcie_gen_mask,
++		 adev->pm.pcie_mlw_mask);
+ 	ret = smu_update_pcie_parameters(smu, pcie_gen, pcie_width);
+ 	if (ret) {
+-		dev_err(adev->dev, "Attempt to override pcie params failed!\n");
++		dev_err(adev->dev,
++			"Attempt to override pcie params failed! ret=%d\n",
++			ret);
+ 		return ret;
+ 	}
+ 
+ 	ret = smu_system_features_control(smu, true);
+ 	if (ret) {
+-		dev_err(adev->dev, "Failed to enable requested dpm features!\n");
++		dev_err(adev->dev,
++			"Failed to enable requested dpm features! ret=%d\n",
++			ret);
+ 		return ret;
+ 	}
+ 
+diff --git a/drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c b/drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c
+index 7ca8fdd..83ebfd5 100644
+--- a/drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c
++++ b/drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c
+@@ -746,6 +746,7 @@ int smu_v11_0_init_display_count(struct smu_context *smu, uint32_t count)
+ int smu_v11_0_set_allowed_mask(struct smu_context *smu)
+ {
+ 	struct smu_feature *feature = &smu->smu_feature;
++	struct amdgpu_device *adev = smu->adev;
+ 	int ret = 0;
+ 	uint32_t feature_mask[2];
+ 
+@@ -756,16 +757,28 @@ int smu_v11_0_set_allowed_mask(struct smu_context *smu)
+ 	}
+ 
+ 	smu_feature_list_to_arr32(smu, SMU_FEATURE_LIST_ALLOWED, feature_mask);
++	dev_info(adev->dev,
++		 "SMU allowed feature mask: low=0x%08x high=0x%08x feature_num=%u scpm=%d\n",
++		 feature_mask[0], feature_mask[1], feature->feature_num,
++		 adev->scpm_enabled);
+ 
+ 	ret = smu_cmn_send_smc_msg_with_param(smu, SMU_MSG_SetAllowedFeaturesMaskHigh,
+ 					  feature_mask[1], NULL);
+-	if (ret)
++	if (ret) {
++		dev_err(adev->dev,
++			"SMU failed SetAllowedFeaturesMaskHigh mask=0x%08x ret=%d\n",
++			feature_mask[1], ret);
+ 		goto failed;
++	}
+ 
+ 	ret = smu_cmn_send_smc_msg_with_param(smu, SMU_MSG_SetAllowedFeaturesMaskLow,
+ 					  feature_mask[0], NULL);
+-	if (ret)
++	if (ret) {
++		dev_err(adev->dev,
++			"SMU failed SetAllowedFeaturesMaskLow mask=0x%08x ret=%d\n",
++			feature_mask[0], ret);
+ 		goto failed;
++	}
+ 
+ failed:
+ 	return ret;
+@@ -774,8 +787,20 @@ int smu_v11_0_set_allowed_mask(struct smu_context *smu)
+ int smu_v11_0_system_features_control(struct smu_context *smu,
+ 					     bool en)
+ {
+-	return smu_cmn_send_smc_msg(smu, (en ? SMU_MSG_EnableAllSmuFeatures :
+-					  SMU_MSG_DisableAllSmuFeatures), NULL);
++	struct amdgpu_device *adev = smu->adev;
++	enum smu_message_type msg = en ? SMU_MSG_EnableAllSmuFeatures :
++					 SMU_MSG_DisableAllSmuFeatures;
++	int ret;
++
++	dev_info(adev->dev, "SMU system features control: %s\n",
++		 en ? "enable" : "disable");
++	ret = smu_cmn_send_smc_msg(smu, msg, NULL);
++	if (ret)
++		dev_err(adev->dev,
++			"SMU system features control failed: %s ret=%d\n",
++			en ? "enable" : "disable", ret);
++
++	return ret;
+ }
+ 
+ int smu_v11_0_notify_display_change(struct smu_context *smu)
+diff --git a/drivers/gpu/drm/amd/pm/swsmu/smu_cmn.c b/drivers/gpu/drm/amd/pm/swsmu/smu_cmn.c
+index 6fd50c2..0aa7e74 100644
+--- a/drivers/gpu/drm/amd/pm/swsmu/smu_cmn.c
++++ b/drivers/gpu/drm/amd/pm/swsmu/smu_cmn.c
+@@ -303,10 +303,15 @@ static void __smu_msg_v1_print_err_limited(struct smu_msg_ctl *ctl,
+ 	if (__ratelimit(&_rs)) {
+ 		u32 in[SMU_MSG_MAX_ARGS];
+ 		int i;
++		int index = ctl->message_map[args->msg].map_to;
+ 
+-		dev_err(adev->dev, "%s msg_reg: %x resp_reg: %x", err_msg,
++		dev_err(adev->dev,
++			"%s message=%s(%d) ret-pending msg_reg=0x%08x resp_reg=0x%08x timeout_us=%u flags=0x%x\n",
++			err_msg, smu_get_message_name(smu, args->msg), index,
+ 			RREG32(ctl->config.msg_reg),
+-			RREG32(ctl->config.resp_reg));
++			RREG32(ctl->config.resp_reg),
++			args->timeout ? args->timeout : ctl->default_timeout,
++			args->flags);
+ 		if (args->num_args > 0) {
+ 			for (i = 0; i < args->num_args; i++)
+ 				in[i] = RREG32(ctl->config.arg_regs[i]);
+@@ -476,6 +481,18 @@ static int smu_msg_v1_send_msg(struct smu_msg_ctl *ctl,
+ 	}
+ 
+ 	/* Send message */
++	if (args->msg == SMU_MSG_EnableAllSmuFeatures ||
++	    args->msg == SMU_MSG_DisableAllSmuFeatures ||
++	    args->msg == SMU_MSG_SetAllowedFeaturesMaskHigh ||
++	    args->msg == SMU_MSG_SetAllowedFeaturesMaskLow)
++		dev_info(adev->dev,
++			 "SMU msg start: message=%s(%d) arg0=0x%08x pre_resp=0x%08x timeout_us=%u flags=0x%x\n",
++			 smu_get_message_name(smu, args->msg), index,
++			 args->num_args ? args->args[0] : 0,
++			 RREG32(ctl->config.resp_reg),
++			 args->timeout ? args->timeout : ctl->default_timeout,
++			 args->flags);
++
+ 	__smu_msg_v1_send(ctl, (u16)index, args);
+ 
+ 	/* Post-poll (skip if ASYNC) */
+@@ -487,6 +504,17 @@ static int smu_msg_v1_send_msg(struct smu_msg_ctl *ctl,
+ 	reg = __smu_msg_v1_poll_stat(ctl, args->timeout);
+ 	ret = smu_msg_v1_decode_response(reg);
+ 
++	if (args->msg == SMU_MSG_EnableAllSmuFeatures ||
++	    args->msg == SMU_MSG_DisableAllSmuFeatures ||
++	    args->msg == SMU_MSG_SetAllowedFeaturesMaskHigh ||
++	    args->msg == SMU_MSG_SetAllowedFeaturesMaskLow)
++		dev_info(adev->dev,
++			 "SMU msg done: message=%s(%d) arg0=0x%08x resp=0x%08x ret=%d msg_reg=0x%08x arg_reg0=0x%08x\n",
++			 smu_get_message_name(smu, args->msg), index,
++			 args->num_args ? args->args[0] : 0, reg, ret,
++			 RREG32(ctl->config.msg_reg),
++			 ctl->config.num_arg_regs ? RREG32(ctl->config.arg_regs[0]) : 0);
++
+ 	/* FW state update on fatal error */
+ 	if (ret == -EREMOTEIO) {
+ 		smu->smc_fw_state = SMU_FW_HANG;

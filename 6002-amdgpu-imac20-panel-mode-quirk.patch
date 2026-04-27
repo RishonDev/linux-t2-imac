@@ -156,6 +156,5 @@ index 74fb36b..79a85d1 100644
 +		return DP_PANEL_MODE_EDP;
 +	}
 +
- 	DC_LOG_INFO("link=%d dp_get_panel_mode: signal=%d internal=%d panel_mode_edp=%d branch=0x%x selected=%d\n",
- 		    link->link_index, link->connector_signal,
- 		    link->is_internal_display,
+ 	return DP_PANEL_MODE_DEFAULT;
+ }
