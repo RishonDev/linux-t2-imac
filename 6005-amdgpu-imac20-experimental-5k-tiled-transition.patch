@@ -1,5 +1,5 @@
 diff --git a/drivers/gpu/drm/amd/display/dc/link/link_detection.c b/drivers/gpu/drm/amd/display/dc/link/link_detection.c
-index 102ce3e0d..7d08db520 100644
+index 102ce3e0d..2abac1a86 100644
 --- a/drivers/gpu/drm/amd/display/dc/link/link_detection.c
 +++ b/drivers/gpu/drm/amd/display/dc/link/link_detection.c
 @@ -48,6 +48,8 @@
@@ -11,10 +11,13 @@ index 102ce3e0d..7d08db520 100644
   // Offset DPCD 050Eh == 0x5A
  #define MST_HUB_ID_0x5A  0x5A
  
-@@ -70,6 +72,97 @@ static const u8 DP_SINK_BRANCH_DEV_NAME_7580[] = "7580\x80u";
+@@ -70,6 +72,158 @@ static const u8 DP_SINK_BRANCH_DEV_NAME_7580[] = "7580\x80u";
  
  static const u8 dp_hdmi_dongle_signature_str[] = "DP-HDMI ADAPTOR";
  
++static bool i2c_read(struct ddc_service *ddc, uint32_t address, u8 *buffer,
++		     uint32_t len);
++
 +static bool is_apple_imac20_5k(void)
 +{
 +	return dmi_match(DMI_SYS_VENDOR, "Apple Inc.") &&
@@ -27,6 +30,14 @@ index 102ce3e0d..7d08db520 100644
 +	return is_apple_imac20_5k() &&
 +		link->link_index == 0 &&
 +		link->connector_signal == SIGNAL_TYPE_EDP;
++}
++
++static bool should_probe_imac20_5k_aux(const struct dc_link *link)
++{
++	return is_apple_imac20_5k() &&
++		link->link_index <= 3 &&
++		(link->connector_signal == SIGNAL_TYPE_EDP ||
++		 link->connector_signal == SIGNAL_TYPE_DISPLAY_PORT);
 +}
 +
 +static void log_imac20_dpcd_block(struct dc_link *link, uint32_t address,
@@ -43,19 +54,68 @@ index 102ce3e0d..7d08db520 100644
 +
 +static void log_imac20_5k_dpcd_state(struct dc_link *link, const char *phase)
 +{
-+	if (!should_try_imac20_5k_tiled_transition(link))
++	if (!should_probe_imac20_5k_aux(link))
 +		return;
 +
-+	DC_LOG_INFO("link=%d iMac20 5K DPCD dump: %s\n",
-+		    link->link_index, phase);
++	DC_LOG_INFO("link=%d iMac20 5K DPCD dump: %s signal=%d internal=%d type=%d\n",
++		    link->link_index, phase, link->connector_signal,
++		    link->is_internal_display, link->type);
 +	log_imac20_dpcd_block(link, 0x000, "rx-caps");
 +	log_imac20_dpcd_block(link, 0x010, "edp-rates");
 +	log_imac20_dpcd_block(link, 0x020, "downstream");
++	log_imac20_dpcd_block(link, 0x030, "guid");
 +	log_imac20_dpcd_block(link, 0x100, "link-cfg");
 +	log_imac20_dpcd_block(link, 0x110, "mst-power");
 +	log_imac20_dpcd_block(link, 0x200, "link-status");
++	log_imac20_dpcd_block(link, 0x300, "source-oui");
++	log_imac20_dpcd_block(link, 0x400, "sink-oui");
 +	log_imac20_dpcd_block(link, 0x500, "branch-id");
 +	log_imac20_dpcd_block(link, 0x700, "edp-caps");
++	log_imac20_dpcd_block(link, 0x720, "edp-control");
++	log_imac20_dpcd_block(link, 0x7a0, "edp-mso");
++	log_imac20_dpcd_block(link, 0x2200, "ext-caps");
++	log_imac20_dpcd_block(link, 0xe0000, "tunnel-oui");
++}
++
++static void log_imac20_possible_tile_aux(struct dc_link *link,
++					 const char *phase)
++{
++	if (!should_probe_imac20_5k_aux(link))
++		return;
++
++	if (link->link_index == 0) {
++		log_imac20_5k_dpcd_state(link, phase);
++		return;
++	}
++
++	DC_LOG_INFO("link=%d iMac20 possible tile AUX probe: %s signal=%d internal=%d type=%d\n",
++		    link->link_index, phase, link->connector_signal,
++		    link->is_internal_display, link->type);
++	log_imac20_dpcd_block(link, 0x000, "rx-caps");
++	log_imac20_dpcd_block(link, 0x030, "guid");
++	log_imac20_dpcd_block(link, 0x400, "sink-oui");
++	log_imac20_dpcd_block(link, 0x500, "branch-id");
++	log_imac20_dpcd_block(link, 0x700, "edp-caps");
++}
++
++static void log_imac20_i2c_probe(struct dc_link *link)
++{
++	static const u8 probe_addrs[] = {
++		0x2c, 0x2d, 0x37, 0x3a, 0x3b, 0x4a, 0x4c, 0x50, 0x52, 0x58
++	};
++	u8 data;
++	int i;
++
++	if (!should_try_imac20_5k_tiled_transition(link) || !link->ddc)
++		return;
++
++	for (i = 0; i < ARRAY_SIZE(probe_addrs); i++) {
++		data = 0;
++		DC_LOG_INFO("link=%d iMac20 I2C probe addr=0x%02x ok=%d data=0x%02x\n",
++			    link->link_index, probe_addrs[i],
++			    i2c_read(link->ddc, probe_addrs[i], &data, 1),
++			    data);
++	}
 +}
 +
 +static void try_imac20_5k_tiled_transition(struct dc_link *link)
@@ -70,7 +130,8 @@ index 102ce3e0d..7d08db520 100644
 +	if (!should_try_imac20_5k_tiled_transition(link))
 +		return;
 +
-+	log_imac20_5k_dpcd_state(link, "before-transition");
++	log_imac20_5k_dpcd_state(link, "transition");
++	log_imac20_i2c_probe(link);
 +
 +	cap_status = core_link_read_dpcd(link, DP_MSTM_CAP, &mstm_cap,
 +					 sizeof(mstm_cap));
@@ -109,7 +170,15 @@ index 102ce3e0d..7d08db520 100644
  static enum ddc_transaction_type get_ddc_transaction_type(enum signal_type sink_signal)
  {
  	enum ddc_transaction_type transaction_type = DDC_TRANSACTION_TYPE_NONE;
-@@ -1059,6 +1152,9 @@ static bool detect_link_and_local_sink(struct dc_link *link,
+@@ -1010,6 +1164,7 @@ static bool detect_link_and_local_sink(struct dc_link *link,
+ 	DC_LOG_INFO("link=%d detect start: signal=%d reason=%d pre_type=%d new_type=%d internal=%d\n",
+ 		    link->link_index, link->connector_signal, reason,
+ 		    pre_link_type, new_connection_type, link->is_internal_display);
++	log_imac20_possible_tile_aux(link, "post-connection-detect");
+ 
+ 	prev_sink = link->local_sink;
+ 	if (prev_sink) {
+@@ -1059,6 +1214,9 @@ static bool detect_link_and_local_sink(struct dc_link *link,
  
  		case SIGNAL_TYPE_EDP: {
  			detect_edp_sink_caps(link);
