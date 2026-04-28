@@ -295,7 +295,7 @@
  #include <linux/sort.h>
  
  #include <drm/drm_privacy_screen_consumer.h>
-@@ -108,6 +110,289 @@
+@@ -108,6 +110,318 @@
  
  #define FIRMWARE_RENOIR_DMUB "amdgpu/renoir_dmcub.bin"
  MODULE_FIRMWARE(FIRMWARE_RENOIR_DMUB);
@@ -389,6 +389,35 @@
 +			 "iMac20 late I2C probe: %s connector=%s link=%u aux=%d addr=0x%02x ret=%d data=0x%02x\n",
 +			 stage, connector->name, link->link_index,
 +			 link->aux_mode, probe_addrs[i], ret, data);
++	}
++
++	if (aconnector->drm_edid) {
++		int reg;
++
++		for (reg = 0; reg < 0x40; reg++) {
++			u8 offset = reg;
++			u8 value = 0;
++			struct i2c_msg msgs[] = {
++				{
++					.addr = 0x37,
++					.flags = 0,
++					.len = 1,
++					.buf = &offset,
++				},
++				{
++					.addr = 0x37,
++					.flags = I2C_M_RD,
++					.len = 1,
++					.buf = &value,
++				},
++			};
++			int ret = i2c_transfer(ddc, msgs, ARRAY_SIZE(msgs));
++
++			drm_info(connector->dev,
++				 "iMac20 late I2C reg probe: %s connector=%s link=%u aux=%d addr=0x37 reg=0x%02x ret=%d data=0x%02x\n",
++				 stage, connector->name, link->link_index,
++				 link->aux_mode, reg, ret, value);
++		}
 +	}
 +
 +	if (aconnector->drm_edid) {
