@@ -295,7 +295,7 @@
  #include <linux/sort.h>
  
  #include <drm/drm_privacy_screen_consumer.h>
-@@ -108,6 +110,288 @@
+@@ -108,6 +110,289 @@
  
  #define FIRMWARE_RENOIR_DMUB "amdgpu/renoir_dmcub.bin"
  MODULE_FIRMWARE(FIRMWARE_RENOIR_DMUB);
@@ -585,7 +585,7 @@
  #define FIRMWARE_SIENNA_CICHLID_DMUB "amdgpu/sienna_cichlid_dmcub.bin"
  MODULE_FIRMWARE(FIRMWARE_SIENNA_CICHLID_DMUB);
  #define FIRMWARE_NAVY_FLOUNDER_DMUB "amdgpu/navy_flounder_dmcub.bin"
-@@ -5293,7 +5502,7 @@
+@@ -5293,7 +5578,7 @@
  	struct backlight_properties props = { 0 };
  	struct amdgpu_dm_backlight_caps *caps;
  	char bl_name[16];
@@ -594,7 +594,7 @@
  	int real_brightness;
  	int init_brightness;
  
-@@ -5301,6 +5510,11 @@
+@@ -5301,6 +5586,11 @@
  		return;
  
  	if (!acpi_video_backlight_use_native()) {
@@ -606,7 +606,7 @@
  		drm_info(drm, "Skipping amdgpu DM backlight registration\n");
  		/* Try registering an ACPI video backlight device instead. */
  		acpi_video_register_backlight();
-@@ -5320,6 +5534,14 @@
+@@ -5320,6 +5610,14 @@
  	} else
  		props.brightness = props.max_brightness = MAX_BACKLIGHT_LEVEL;
  
@@ -621,7 +621,7 @@
  	init_brightness = props.brightness;
  
  	if (caps->data_points && !(amdgpu_dc_debug_mask & DC_DISABLE_CUSTOM_BRIGHTNESS_CURVE)) {
-@@ -5352,6 +5574,13 @@
+@@ -5352,6 +5650,13 @@
  			dm->actual_brightness[aconnector->bl_idx] = real_brightness;
  			dm->brightness[aconnector->bl_idx] = real_brightness;
  		}
@@ -635,7 +635,7 @@
  		drm_dbg_driver(drm, "DM: Registered Backlight device: %s\n", bl_name);
  	}
  }
-@@ -5405,8 +5634,14 @@
+@@ -5405,8 +5710,14 @@
  	int bl_idx = dm->num_of_edps;
  
  	if (!(link->connector_signal & (SIGNAL_TYPE_EDP | SIGNAL_TYPE_LVDS)) ||
@@ -651,7 +651,7 @@
  
  	if (dm->num_of_edps >= AMDGPU_DM_MAX_NUM_EDP) {
  		drm_warn(adev_to_drm(dm->adev), "Too much eDP connections, skipping backlight setup for additional eDPs\n");
-@@ -5419,6 +5654,16 @@
+@@ -5419,6 +5730,16 @@
  	dm->backlight_link[bl_idx] = link;
  	dm->num_of_edps++;
  
@@ -668,7 +668,7 @@
  	update_connector_ext_caps(aconnector);
  	caps = &dm->backlight_caps[aconnector->bl_idx];
  
-@@ -8230,6 +8475,24 @@
+@@ -8230,6 +8551,23 @@
  	}
  
  fail:
@@ -692,7 +692,7 @@
  	/* TODO: error handling*/
  	return result;
  }
-@@ -8911,10 +9174,18 @@
+@@ -8911,10 +9249,18 @@
  	const struct drm_edid *drm_edid = amdgpu_dm_connector->drm_edid;
  	struct dc_link_settings *verified_link_cap = &dc_link->verified_link_cap;
  	const struct dc *dc = dc_link->dc;
@@ -711,7 +711,7 @@
  		amdgpu_dm_connector->num_modes =
  				drm_add_modes_noedid(connector, 640, 480);
  		if (dc->link_srv->dp_get_encoding_format(verified_link_cap) == DP_128b_132b_ENCODING)
-@@ -8938,6 +9209,7 @@
+@@ -8938,6 +9284,7 @@
  		amdgpu_dm_connector_add_freesync_modes(connector, drm_edid);
  	}
  	amdgpu_dm_fbc_init(connector);
@@ -719,7 +719,7 @@
  
  	return amdgpu_dm_connector->num_modes;
  }
-@@ -9244,6 +9516,25 @@
+@@ -9244,6 +9591,25 @@
  		link,
  		link_index);
  
@@ -745,7 +745,7 @@
  	drm_connector_attach_encoder(
  		&aconnector->base, &aencoder->base);
  
-@@ -10879,8 +11170,11 @@
+@@ -10879,8 +11245,11 @@
  	struct drm_connector_state *old_con_state = NULL, *new_con_state = NULL;
  	struct dm_crtc_state *dm_old_crtc_state, *dm_new_crtc_state;
  	int crtc_disable_count = 0;
@@ -757,7 +757,7 @@
  
  	drm_atomic_helper_update_legacy_modeset_state(dev, state);
  	drm_dp_mst_atomic_wait_for_dependencies(state);
-@@ -10888,7 +11182,15 @@
+@@ -10888,7 +11257,15 @@
  	dm_state = dm_atomic_get_new_state(state);
  	if (dm_state && dm_state->context) {
  		dc_state = dm_state->context;
@@ -773,7 +773,7 @@
  	}
  
  	amdgpu_dm_update_hdcp(state);
-@@ -11079,8 +11381,21 @@
+@@ -11079,8 +11456,21 @@
  	for_each_new_crtc_in_state(state, crtc, new_crtc_state, j) {
  		dm_new_crtc_state = to_dm_crtc_state(new_crtc_state);
  
@@ -796,7 +796,7 @@
  	}
  
  	/* Enable writeback */
-@@ -11113,9 +11428,20 @@
+@@ -11113,9 +11503,20 @@
  
  	/* restore the backlight level */
  	for (i = 0; i < dm->num_of_edps; i++) {
@@ -818,7 +818,7 @@
  	}
  
  	/*
-@@ -11133,12 +11459,23 @@
+@@ -11133,12 +11534,23 @@
  	spin_unlock_irqrestore(&adev_to_drm(adev)->event_lock, flags);
  
  	/* Signal HW programming completion */
@@ -843,7 +843,7 @@
  
  	/* Don't free the memory if we are hitting this as part of suspend.
  	 * This way we don't free any memory during suspend; see
-@@ -11161,6 +11498,8 @@
+@@ -11161,6 +11573,8 @@
  		pm_runtime_put_autosuspend(dev->dev);
  	pm_runtime_mark_last_busy(dev->dev);
  
@@ -852,7 +852,7 @@
  	trace_amdgpu_dm_atomic_commit_tail_finish(state);
  }
  
-@@ -11306,6 +11645,10 @@
+@@ -11306,6 +11720,10 @@
  		if (ret == 0)
  			drm_err(dev, "[CRTC:%d:%s] hw_done or flip_done timed out\n",
  				  crtc->base.id, crtc->name);
