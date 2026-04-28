@@ -286,16 +286,17 @@
  
 --- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
 +++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
-@@ -78,6 +78,8 @@
+@@ -78,6 +78,9 @@
  #include <linux/power_supply.h>
  #include <linux/firmware.h>
  #include <linux/component.h>
++#include <linux/delay.h>
 +#include <linux/dmi.h>
 +#include <linux/i2c.h>
  #include <linux/sort.h>
  
  #include <drm/drm_privacy_screen_consumer.h>
-@@ -108,6 +110,321 @@
+@@ -108,6 +111,377 @@
  
  #define FIRMWARE_RENOIR_DMUB "amdgpu/renoir_dmcub.bin"
  MODULE_FIRMWARE(FIRMWARE_RENOIR_DMUB);
@@ -346,6 +347,88 @@
 +	return crtc ? crtc->name : "none";
 +}
 +
++static u8 amdgpu_dm_imac20_ddcci_checksum(const u8 *buf, size_t len)
++{
++	u8 checksum = 0x6e;
++	size_t i;
++
++	for (i = 0; i < len; i++)
++		checksum ^= buf[i];
++
++	return checksum;
++}
++
++static void amdgpu_dm_imac20_ddcci_xfer(struct drm_connector *connector,
++					struct i2c_adapter *ddc,
++					struct dc_link *link,
++					const char *stage,
++					const char *name,
++					u8 *request,
++					size_t request_len,
++					u8 *response,
++					size_t response_len)
++{
++	struct i2c_msg write_msg = {
++		.addr = 0x37,
++		.flags = 0,
++		.len = request_len,
++		.buf = request,
++	};
++	struct i2c_msg read_msg = {
++		.addr = 0x37,
++		.flags = I2C_M_RD,
++		.len = response_len,
++		.buf = response,
++	};
++	int write_ret;
++	int read_ret;
++
++	request[request_len - 1] =
++		amdgpu_dm_imac20_ddcci_checksum(request, request_len - 1);
++	memset(response, 0, response_len);
++
++	write_ret = i2c_transfer(ddc, &write_msg, 1);
++	msleep(40);
++	read_ret = i2c_transfer(ddc, &read_msg, 1);
++
++	drm_info(connector->dev,
++		 "iMac20 DDC/CI probe: %s connector=%s link=%u aux=%d %s write=%d read=%d req=%*ph resp=%*ph\n",
++		 stage, connector->name, link->link_index, link->aux_mode,
++		 name, write_ret, read_ret, (int)request_len, request,
++		 (int)response_len, response);
++}
++
++static void amdgpu_dm_imac20_ddcci_probe(struct drm_connector *connector,
++					 struct i2c_adapter *ddc,
++					 struct dc_link *link,
++					 const char *stage)
++{
++	static const u8 vcp_codes[] = {
++		0x10, 0x52, 0x60, 0x62, 0xac, 0xae, 0xb6, 0xc8, 0xc9, 0xca, 0xdf
++	};
++	u8 response[32];
++	int i;
++
++	{
++		u8 request[] = { 0x51, 0x83, 0xf3, 0x00, 0x00, 0x00 };
++
++		amdgpu_dm_imac20_ddcci_xfer(connector, ddc, link, stage,
++					    "capabilities", request,
++					    sizeof(request), response,
++					    sizeof(response));
++	}
++
++	for (i = 0; i < ARRAY_SIZE(vcp_codes); i++) {
++		u8 request[] = { 0x51, 0x82, 0x01, vcp_codes[i], 0x00 };
++		char name[16];
++
++		snprintf(name, sizeof(name), "vcp-0x%02x", vcp_codes[i]);
++		amdgpu_dm_imac20_ddcci_xfer(connector, ddc, link, stage,
++					    name, request, sizeof(request),
++					    response, sizeof(response));
++	}
++}
++
 +static void amdgpu_dm_imac20_late_i2c_probe(struct drm_connector *connector,
 +					    const char *stage)
 +{
@@ -394,34 +477,8 @@
 +			 link->aux_mode, probe_addrs[i], ret, data);
 +	}
 +
-+	if (saw_0x37) {
-+		int reg;
-+
-+		for (reg = 0; reg < 0x40; reg++) {
-+			u8 offset = reg;
-+			u8 value = 0;
-+			struct i2c_msg msgs[] = {
-+				{
-+					.addr = 0x37,
-+					.flags = 0,
-+					.len = 1,
-+					.buf = &offset,
-+				},
-+				{
-+					.addr = 0x37,
-+					.flags = I2C_M_RD,
-+					.len = 1,
-+					.buf = &value,
-+				},
-+			};
-+			int ret = i2c_transfer(ddc, msgs, ARRAY_SIZE(msgs));
-+
-+			drm_info(connector->dev,
-+				 "iMac20 late I2C reg probe: %s connector=%s link=%u aux=%d addr=0x37 reg=0x%02x ret=%d data=0x%02x\n",
-+				 stage, connector->name, link->link_index,
-+				 link->aux_mode, reg, ret, value);
-+		}
-+	}
++	if (saw_0x37)
++		amdgpu_dm_imac20_ddcci_probe(connector, ddc, link, stage);
 +
 +	if (aconnector->drm_edid) {
 +		u8 offset = 0;
