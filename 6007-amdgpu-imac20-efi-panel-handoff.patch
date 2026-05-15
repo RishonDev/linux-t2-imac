@@ -1,0 +1,72 @@
+--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
++++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
+@@ -102,6 +102,7 @@
+ #include <media/cec-notifier.h>
+ #include <acpi/video.h>
+ #include <linux/acpi.h>
++#include <linux/reboot.h>
+
+ #include "ivsrcid/dcn/irqsrcs_dcn_1_0.h"
+
+@@ -723,6 +724,40 @@
+
+ static DECLARE_DELAYED_WORK(imac20_5k_work, imac20_5k_deferred_request);
+
++static struct drm_device *imac20_efi_ddev;
++
++static int imac20_efi_handoff(struct notifier_block *nb,
++			       unsigned long action, void *data)
++{
++	struct drm_connector_list_iter conn_iter;
++	struct drm_connector *connector;
++	struct amdgpu_dm_connector *aconn = NULL;
++
++	if (!imac20_efi_ddev)
++		return NOTIFY_DONE;
++
++	drm_connector_list_iter_begin(imac20_efi_ddev, &conn_iter);
++	drm_for_each_connector_iter(connector, &conn_iter) {
++		if (connector->connector_type == DRM_MODE_CONNECTOR_eDP) {
++			aconn = to_amdgpu_dm_connector(connector);
++			break;
++		}
++	}
++	drm_connector_list_iter_end(&conn_iter);
++
++	if (!aconn)
++		return NOTIFY_DONE;
++
++	aconn->dc_link->panel_mode = 0;
++	drm_dp_dpcd_writeb(&aconn->dm_dp_aux.aux, DP_EDP_CONFIGURATION_SET, 0);
++	drm_info(imac20_efi_ddev, "iMac20: EFI handoff -- cleared EDP panel mode\n");
++	return NOTIFY_DONE;
++}
++
++static struct notifier_block imac20_efi_nb = {
++	.notifier_call = imac20_efi_handoff,
++};
++
+ /**
+  * DOC: overview
+  *
+@@ -2451,6 +2486,20 @@
+ 	adev->dm.ddev = adev_to_drm(adev);
+ 	adev->dm.adev = adev;
+ 
++	drm_info(adev_to_drm(adev),
++		 "iMac20 5K: dm init dmi=%d experimental_dp1=%d\n",
++		 amdgpu_dm_is_imac20(), imac20_5k_experimental_dp1);
++
++	if (amdgpu_dm_is_imac20()) {
++		imac20_5k_adev = adev;
++		imac20_5k_ddev = adev_to_drm(adev);
++		schedule_delayed_work(&imac20_5k_work, msecs_to_jiffies(1000));
++		imac20_efi_ddev = adev_to_drm(adev);
++		register_reboot_notifier(&imac20_efi_nb);
++		drm_info(adev_to_drm(adev),
++			 "iMac20 5K: scheduled APPAE32 delayed probe\n");
++	}
++
+ 	/* Zero all the fields */
+ 	memset(&init_data, 0, sizeof(init_data));
+ 	memset(&init_params, 0, sizeof(init_params));

@@ -1,0 +1,111 @@
+From: Rishon Jonathan R <rishonsishya@gmail.com>
+Subject: [PATCH] drm/amd/display: iMac20 5K: bypass AUX HPD check for second tile probe
+
+Set AUX_IGNORE_HPD_DISCON (bit 16 of AUX_CONTROL) before probing the
+second 5K tile (DP-1/link-1) on iMac20.  The hardware blocks all AUX
+transactions when HPD is not asserted; DP-1 never has physical HPD in
+Linux because the panel does not enter APPAE32 mode before the driver
+starts.  With this bit set the AUX engine will attempt the transaction
+anyway, yielding either:
+
+  - ACK with data: panel is already in APPAE32 (EFI put it there), we
+    just need to notify the driver that DP-1 is alive.
+  - Timeout:       panel is in APPAE31, need a different trigger to
+    switch modes.
+
+This diagnostic result drives the next step.  The bit is cleared after
+the probe in every path.
+
+This mirrors what Windows atikmdag.sys calls "Apply fake HPD workaround
+for Display[%d]" via Dal2_TopologyManager_forceDetectPaths, which sets
+the AUX_IGNORE_HPD_DISCON hardware bit before probing DP-1.
+--- a/drivers/gpu/drm/amd/display/dc/dce/dce_aux.c
++++ b/drivers/gpu/drm/amd/display/dc/dce/dce_aux.c
+@@ -556,6 +556,39 @@
+ 	return I2CAUX_TRANSACTION_ACTION_DP_READ;
+ }
+ 
++void dce_aux_set_ignore_hpd_discon(struct ddc_service *ddc, bool ignore)
++{
++	struct ddc *ddc_pin = ddc->ddc_pin;
++	struct dce_aux *aux_engine;
++	struct dce_aux *engine;
++	struct aux_engine_dce110 *aux110;
++	uint32_t val;
++
++	if (!ddc_pin || !ddc_pin->pin_data)
++		return;
++
++	if (ddc_pin->pin_data->en >= MAX_PIPES)
++		return;
++
++	aux_engine = ddc->ctx->dc->res_pool->engines[ddc_pin->pin_data->en];
++	if (!aux_engine)
++		return;
++	engine = aux_engine;
++
++	aux110 = (struct aux_engine_dce110 *)aux_engine;
++	val = dm_read_reg(ddc->ctx, aux110->regs->AUX_CONTROL);
++
++	if (ignore)
++		val |= 0x00010000u; /* AUX_IGNORE_HPD_DISCON */
++	else
++		val &= ~0x00010000u;
++
++	dm_write_reg(ddc->ctx, aux110->regs->AUX_CONTROL, val);
++	DC_LOG_INFO("imac20: AUX_IGNORE_HPD_DISCON %s engine=%u AUX_CONTROL=0x%08x\n",
++		    ignore ? "set" : "cleared",
++		    ddc_pin->pin_data->en, val);
++}
++
+ int dce_aux_transfer_raw(struct ddc_service *ddc,
+ 		struct aux_payload *payload,
+ 		enum aux_return_code_type *operation_result)
+--- a/drivers/gpu/drm/amd/display/dc/dce/dce_aux.h
++++ b/drivers/gpu/drm/amd/display/dc/dce/dce_aux.h
+@@ -318,4 +318,7 @@
+ 		(struct aux_engine **ptr);
+ };
+ 
++struct ddc_service;
++void dce_aux_set_ignore_hpd_discon(struct ddc_service *ddc, bool ignore);
++
+ #endif
+--- a/drivers/gpu/drm/amd/display/dc/link/link_detection.c
++++ b/drivers/gpu/drm/amd/display/dc/link/link_detection.c
+@@ -50,6 +50,8 @@
+ 
+ #include <linux/dmi.h>
+ 
++#include "dce/dce_aux.h"
++
+  // Offset DPCD 050Eh == 0x5A
+ #define MST_HUB_ID_0x5A  0x5A
+ 
+@@ -148,11 +150,26 @@
+ 	DC_LOG_INFO("link=%d iMac20 possible tile AUX probe: %s signal=%d internal=%d type=%d\n",
+ 		    link->link_index, phase, link->connector_signal,
+ 		    link->is_internal_display, link->type);
++
++	/*
++	 * DP-1 (second 5K tile) has AUX_SW_HPD_DISCON set in hardware
++	 * because HPD is not physically asserted until the panel enters
++	 * APPAE32 mode.  Clear the hardware AUX block so the engine will
++	 * attempt the transaction.  The result (ACK vs timeout) tells us
++	 * whether the panel is already in APPAE32 mode.
++	 * This mirrors the Windows atikmdag.sys "fake HPD workaround".
++	 */
++	if (link->ddc)
++		dce_aux_set_ignore_hpd_discon(link->ddc, true);
++
+ 	log_imac20_dpcd_block(link, 0x000, "rx-caps");
+ 	log_imac20_dpcd_block(link, 0x030, "guid");
+ 	log_imac20_dpcd_block(link, 0x400, "sink-oui");
+ 	log_imac20_dpcd_block(link, 0x500, "branch-id");
+ 	log_imac20_dpcd_block(link, 0x700, "edp-caps");
++
++	if (link->ddc)
++		dce_aux_set_ignore_hpd_discon(link->ddc, false);
+ }
+ 
+ static void log_imac20_i2c_probe(struct dc_link *link)

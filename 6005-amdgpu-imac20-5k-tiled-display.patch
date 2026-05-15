@@ -1,0 +1,165 @@
+--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
++++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
+@@ -99,6 +99,7 @@
+
+ #include <media/cec-notifier.h>
+ #include <acpi/video.h>
++#include <linux/acpi.h>
+
+ #include "ivsrcid/dcn/irqsrcs_dcn_1_0.h"
+
+@@ -160,6 +161,154 @@
+ 		dmi_match(DMI_PRODUCT_NAME, "iMac20,2"));
+ }
+
++static struct amdgpu_device *imac20_5k_adev;
++static struct drm_device *imac20_5k_ddev;
++bool imac20_5k_edp_mode_active;
++extern bool imac20_5k_experimental_dp1;
++static int imac20_5k_probe_attempt;
++
++static void imac20_5k_deferred_request(struct work_struct *work);
++static DECLARE_DELAYED_WORK(imac20_5k_work, imac20_5k_deferred_request);
++
++static void imac20_5k_log_connector(struct amdgpu_dm_connector *aconn)
++{
++	struct dc_link *link;
++
++	if (!aconn || !aconn->dc_link)
++		return;
++
++	link = aconn->dc_link;
++	drm_info(imac20_5k_ddev,
++		 "%s: iMac20 5K: connector scan attempt=%d connector_type=%d status=%d link_index=%u link_id=%u enum=%u obj_type=%u dc_type=%d signal=%d local_sink=%d sink_count=%u internal=%d hpd=%d hpd_pending=%d aux_disabled=%d edp_sink=%d ddc=%u hpd_src=%u\n",
++		 aconn->base.name, imac20_5k_probe_attempt,
++		 aconn->base.connector_type, aconn->base.status,
++		 link->link_index, link->link_id.id, link->link_id.enum_id,
++		 link->link_id.type, link->type, link->connector_signal,
++		 !!link->local_sink, link->sink_count, link->is_internal_display,
++		 link->hpd_status, link->is_hpd_pending, link->aux_access_disabled,
++		 link->edp_sink_present, link->ddc_hw_inst, link->hpd_src);
++}
++
++static void imac20_5k_probe_dp1(struct amdgpu_dm_connector *aconn)
++{
++	u8 dpcd[DP_RECEIVER_CAP_SIZE] = {0};
++	u8 post_dpcd[DP_RECEIVER_CAP_SIZE] = {0};
++	ssize_t read_ret;
++	ssize_t post_read_ret;
++	int write_ret;
++	bool detect_ret = false;
++	bool hpd_sense_before;
++	bool hpd_sense_after;
++
++	if (!aconn || !aconn->dc_link || aconn->dc_link->link_index != 1)
++		return;
++
++	hpd_sense_before = dc_link_get_hpd_state(aconn->dc_link);
++	drm_info(imac20_5k_ddev,
++		 "%s: iMac20 5K: DP-1 HPD/AUX pre attempt=%d status=%d cached_hpd=%d sensed_hpd=%d hpd_pending=%d aux_disabled=%d hpd_src=%u ddc=%u\n",
++		 aconn->base.name, imac20_5k_probe_attempt,
++		 aconn->base.status, aconn->dc_link->hpd_status,
++		 hpd_sense_before, aconn->dc_link->is_hpd_pending,
++		 aconn->dc_link->aux_access_disabled,
++		 aconn->dc_link->hpd_src, aconn->dc_link->ddc_hw_inst);
++
++	aconn->dc_link->panel_mode = 1; /* DP_PANEL_MODE_EDP */
++	write_ret = drm_dp_dpcd_writeb(&aconn->dm_dp_aux.aux,
++				       DP_EDP_CONFIGURATION_SET,
++				       DP_PANEL_MODE_EDP);
++	read_ret = drm_dp_dpcd_read(&aconn->dm_dp_aux.aux, DP_DPCD_REV,
++				    dpcd, sizeof(dpcd));
++	drm_info(imac20_5k_ddev,
++		 "%s: iMac20 5K: DP-1 APPAE32 wake attempt=%d status=%d type=%d write_0x10a=%d dpcd_read=%zd caps=%*ph\n",
++		 aconn->base.name, imac20_5k_probe_attempt,
++		 aconn->base.status, aconn->dc_link->type, write_ret,
++		 read_ret, (int)sizeof(dpcd), dpcd);
++
++	mutex_lock(&imac20_5k_adev->dm.dc_lock);
++	detect_ret = dc_link_detect(aconn->dc_link, DETECT_REASON_HPD);
++	mutex_unlock(&imac20_5k_adev->dm.dc_lock);
++	hpd_sense_after = dc_link_get_hpd_state(aconn->dc_link);
++	post_read_ret = drm_dp_dpcd_read(&aconn->dm_dp_aux.aux, DP_DPCD_REV,
++					 post_dpcd, sizeof(post_dpcd));
++	drm_info(imac20_5k_ddev,
++		 "%s: iMac20 5K: DP-1 re-detect after APPAE32 wake ret=%d type=%d local_sink=%d cached_hpd=%d sensed_hpd=%d hpd_pending=%d post_dpcd_read=%zd caps=%*ph\n",
++		 aconn->base.name, detect_ret, aconn->dc_link->type,
++		 !!aconn->dc_link->local_sink, aconn->dc_link->hpd_status,
++		 hpd_sense_after, aconn->dc_link->is_hpd_pending, post_read_ret,
++		 (int)sizeof(post_dpcd), post_dpcd);
++
++	if (detect_ret)
++		drm_kms_helper_hotplug_event(imac20_5k_ddev);
++}
++
++static void imac20_5k_deferred_request(struct work_struct *work)
++{
++	struct drm_connector_list_iter conn_iter;
++	struct drm_connector *connector;
++	struct amdgpu_dm_connector *edp_aconn = NULL;
++	struct amdgpu_dm_connector *dp1_aconn = NULL;
++	int delay_ms;
++	int ret;
++
++	imac20_5k_probe_attempt++;
++	drm_connector_list_iter_begin(imac20_5k_ddev, &conn_iter);
++	drm_for_each_connector_iter(connector, &conn_iter) {
++		struct amdgpu_dm_connector *aconn =
++			to_amdgpu_dm_connector(connector);
++
++		if (imac20_5k_experimental_dp1 &&
++		    (imac20_5k_probe_attempt == 1 ||
++		     imac20_5k_probe_attempt == 3 ||
++		     imac20_5k_probe_attempt == 5))
++			imac20_5k_log_connector(aconn);
++
++		if (connector->connector_type == DRM_MODE_CONNECTOR_eDP) {
++			edp_aconn = aconn;
++		} else if (connector->connector_type ==
++			   DRM_MODE_CONNECTOR_DisplayPort) {
++			if (aconn->dc_link && aconn->dc_link->link_index == 1)
++				dp1_aconn = aconn;
++		}
++	}
++	drm_connector_list_iter_end(&conn_iter);
++
++	if (!edp_aconn) {
++		drm_info(imac20_5k_ddev, "iMac20 5K: eDP connector not found\n");
++		return;
++	}
++
++	if (!imac20_5k_experimental_dp1)
++		drm_info_once(imac20_5k_ddev,
++			      "iMac20 5K: DP-1/APPAE32 wake probe disabled; set amdgpu.imac20_5k_experimental_dp1=1 to test\n");
++
++	/*
++	 * dp_get_panel_mode() is called only at initial link detection, not
++	 * during fast link recovery after HPD.  Directly set link->panel_mode
++	 * to DP_PANEL_MODE_EDP (value 1 in enum dp_panel_mode, dc_types.h)
++	 * before writing DPCD 0x10A so the HPD-triggered recovery trains in
++	 * EDP mode -- the confirmation T2 needs to switch from APPAE31 to
++	 * dual APPAE32 tiles (5120x2880, same as DalEnable5kTiledMode).
++	 */
++	imac20_5k_edp_mode_active = true;
++	edp_aconn->dc_link->panel_mode = 1; /* DP_PANEL_MODE_EDP */
++	ret = drm_dp_dpcd_writeb(&edp_aconn->dm_dp_aux.aux,
++				 DP_EDP_CONFIGURATION_SET, DP_PANEL_MODE_EDP);
++	drm_info(imac20_5k_ddev,
++		 "iMac20 5K: panel_mode=EDP, DPCD 0x10A write: ret=%d\n", ret);
++
++	if (imac20_5k_experimental_dp1 && dp1_aconn)
++		imac20_5k_probe_dp1(dp1_aconn);
++	else if (imac20_5k_experimental_dp1)
++		drm_info(imac20_5k_ddev, "iMac20 5K: DP-1/link=1 connector not found\n");
++
++	if (imac20_5k_experimental_dp1 &&
++	    imac20_5k_probe_attempt < 5 && (!dp1_aconn ||
++	    !dp1_aconn->dc_link->local_sink)) {
++		delay_ms = 1000;
++		schedule_delayed_work(&imac20_5k_work, msecs_to_jiffies(delay_ms));
++	}
++}
++
+ /**
+  * DOC: overview
+  *

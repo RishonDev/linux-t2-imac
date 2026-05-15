@@ -1,0 +1,40 @@
+diff --git a/drivers/gpu/drm/amd/display/dc/link/link_factory.c b/drivers/gpu/drm/amd/display/dc/link/link_factory.c
+--- a/drivers/gpu/drm/amd/display/dc/link/link_factory.c
++++ b/drivers/gpu/drm/amd/display/dc/link/link_factory.c
+@@ -45,6 +45,7 @@
+ #include "protocols/link_hpd.h"
+ #include "gpio_service_interface.h"
+ #include "atomfirmware.h"
++#include <linux/dmi.h>
+ 
+ #define DC_LOGGER \
+ 	dc_ctx->logger
+@@ -54,6 +55,13 @@
+ 	DC_LOG_HW_HOTPLUG(  \
+ 		__VA_ARGS__)
+ 
++static bool is_apple_imac20_5k(void)
++{
++	return dmi_match(DMI_SYS_VENDOR, "Apple Inc.") &&
++		(dmi_match(DMI_PRODUCT_NAME, "iMac20,1") ||
++		 dmi_match(DMI_PRODUCT_NAME, "iMac20,2"));
++}
++
+ /* link factory owns the creation/destruction of link structures. */
+ static void construct_link_service_factory(struct link_service *link_srv)
+ {
+@@ -545,6 +553,14 @@ static bool construct_phy(struct dc_link *link,
+ 		DC_LOG_DC("BIOS object table - is_internal_display: %d", link->is_internal_display);
+ 	}
+ 
++	if (is_apple_imac20_5k() &&
++	    link->link_index == 0 &&
++	    link->link_id.id == 20) {
++		link->is_internal_display = true;
++		DC_LOG_INFO("link=%d iMac20 5K quirk: forcing internal panel classification for link_id=%d\n",
++			    link->link_index, link->link_id.id);
++	}
++
+ 	if (link->link_id.type != OBJECT_TYPE_CONNECTOR) {
+ 		dm_output_to_console("%s: Invalid Connector ObjectID from Adapter Service for connector index:%d! type %d expected %d\n",
+ 				     __func__, init_params->connector_index,

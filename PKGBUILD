@@ -5,8 +5,8 @@
 #               apple-ibridge drivers, respectively.
 
 pkgbase="linux-t2"
-_pkgver=7.0
-pkgver=7.0
+_pkgver=7.1-rc2
+pkgver=7.1rc2
 _srcname=linux-${_pkgver}
 pkgrel=1
 archrel=1
@@ -32,12 +32,20 @@ options=('!strip')
 _srcname="linux-${_pkgver}"
 T2_PATCH_HASH=76589a89790c33c137d173f2d98b6096cd16b132
 source=(
-  https://cdn.kernel.org/pub/linux/kernel/v${_pkgver%%.*}.x/linux-${_pkgver}.tar.xz
+  https://git.kernel.org/torvalds/t/linux-${_pkgver}.tar.gz
   config  # the main kernel config file
   6001-amdgpu-imac20-panel-mode-quirk.patch
   6002-amdgpu-imac20-disable-navi-smu-low-power-features.patch
-  6004-amdgpu-imac20-debug-instrumentation.patch
-  6005-amdgpu-imac20-experimental-5k-tiled-transition.patch
+  6003-amdgpu-imac20-retry-smu-enable.patch
+  6004-amdgpu-imac20-external-no-edid-common-modes.patch
+  6005-amdgpu-imac20-5k-tiled-display.patch
+  6006-amdgpu-imac20-force-edp-panel-mode.patch
+  6007-amdgpu-imac20-efi-panel-handoff.patch
+  6008-amdgpu-imac20-cap-8bpc.patch
+  6009-amdgpu-imac20-aux-path-instrumentation.patch
+  6010-amdgpu-imac20-dc-link-detection.patch
+  6011-amdgpu-imac20-dc-link-factory.patch
+  6013-amdgpu-imac20-aux-hpd-bypass.patch
 
   # t2linux Patches
   patches::git+https://github.com/t2linux/linux-t2-patches
@@ -74,13 +82,39 @@ prepare() {
 
   t2linux_patches=$(ls $srcdir/patches | grep -e \.patch$)
   mv $srcdir/patches/*.patch $srcdir/
+  if [[ -f $srcdir/4001-asahi-trackpad.patch ]]; then
+    sed -i \
+      -e 's/^@@ -140,7 +140,7 @@ config HID_APPLE$/@@ -138,6 +138,7 @@ config HID_APPLE/' \
+      -e '/^-\tdefault !EXPERT$/d' \
+      "$srcdir/4001-asahi-trackpad.patch"
+  fi
   local src
   for src in "${source[@]}" $t2linux_patches; do
     src="${src%%::*}"
     src="${src##*/}"
     [[ $src = *.patch ]] || continue
     echo "Applying patch $src..."
-    patch -Np1 < "../$src"
+    if [[ $src = 2008-i915-4-lane-quirk-for-mbp15-1.patch ]]; then
+      patch -Np1 -F3 < "../$src"
+    elif [[ $src = 4002-HID-apple-ensure-the-keyboard-backlight-is-off-if-su.patch ]]; then
+      patch -Np1 --forward < "../$src" || {
+        grep -q 'LED_CORE_SUSPENDRESUME' drivers/hid/hid-apple.c &&
+          echo "Patch $src already present; skipping"
+      }
+    elif [[ $src = 6010-amdgpu-imac20-dc-link-detection.patch ]]; then
+      git apply --no-index "../$src"
+    elif [[ $src = 6013-amdgpu-imac20-aux-hpd-bypass.patch ]]; then
+      git apply --no-index "../$src"
+    elif [[ $src = 6011-amdgpu-imac20-dc-link-factory.patch ]]; then
+      if grep -q 'iMac20 5K quirk: forcing internal panel classification' \
+        drivers/gpu/drm/amd/display/dc/link/link_factory.c; then
+        echo "Patch $src already present; skipping"
+      else
+        patch -Np1 < "../$src"
+      fi
+    else
+      patch -Np1 < "../$src"
+    fi
   done
 
   echo "Setting config..."
@@ -233,6 +267,14 @@ for _p in "${pkgname[@]}"; do
 done
 
 sha256sums=('SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP'
             'SKIP'
             'SKIP'
             'SKIP'

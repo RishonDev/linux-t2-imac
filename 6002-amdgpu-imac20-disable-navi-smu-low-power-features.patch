@@ -1,5 +1,5 @@
 diff --git a/drivers/gpu/drm/amd/pm/swsmu/smu11/navi10_ppt.c b/drivers/gpu/drm/amd/pm/swsmu/smu11/navi10_ppt.c
-index 163e09ca0..66e68e439 100644
+index 163e09ca0..76d926e40 100644
 --- a/drivers/gpu/drm/amd/pm/swsmu/smu11/navi10_ppt.c
 +++ b/drivers/gpu/drm/amd/pm/swsmu/smu11/navi10_ppt.c
 @@ -26,6 +26,7 @@
@@ -10,10 +10,24 @@ index 163e09ca0..66e68e439 100644
  #include "amdgpu.h"
  #include "amdgpu_dpm.h"
  #include "amdgpu_smu.h"
-@@ -73,6 +74,15 @@ static const struct smu_feature_bits navi10_dpm_features = {
+@@ -73,6 +74,29 @@ static const struct smu_feature_bits navi10_dpm_features = {
  
  #define SMU_11_0_GFX_BUSY_THRESHOLD 15
  
++static uint imac20_smu_disable_low =
++	BIT(FEATURE_GFXOFF_BIT) |
++	BIT(FEATURE_BACO_BIT);
++static uint imac20_smu_disable_high =
++	BIT(FEATURE_TEMP_DEPENDENT_VMIN_BIT - 32) |
++	BIT(FEATURE_APCC_DFLL_BIT - 32);
++
++module_param(imac20_smu_disable_low, uint, 0444);
++MODULE_PARM_DESC(imac20_smu_disable_low,
++		 "iMac20 Navi14 SMU allowed-feature low mask to clear before EnableAllSmuFeatures");
++module_param(imac20_smu_disable_high, uint, 0444);
++MODULE_PARM_DESC(imac20_smu_disable_high,
++		 "iMac20 Navi14 SMU allowed-feature high mask to clear before EnableAllSmuFeatures");
++
 +static bool navi10_is_apple_imac20(struct amdgpu_device *adev)
 +{
 +	return adev->pdev->vendor == PCI_VENDOR_ID_ATI &&
@@ -26,15 +40,30 @@ index 163e09ca0..66e68e439 100644
  static struct cmn2asic_msg_mapping navi10_message_map[SMU_MSG_MAX_COUNT] = {
  	MSG_MAP(TestMessage,			PPSMC_MSG_TestMessage,			1),
  	MSG_MAP(GetSmuVersion,			PPSMC_MSG_GetSmuVersion,		1),
-@@ -355,6 +365,13 @@ navi10_init_allowed_features(struct smu_context *smu)
+@@ -355,6 +378,28 @@ navi10_init_allowed_features(struct smu_context *smu)
  	    (adev->rev_id == 0))
  		smu_feature_list_clear_bit(smu, SMU_FEATURE_LIST_ALLOWED, FEATURE_DS_SOCCLK_BIT);
  
 +	if (navi10_is_apple_imac20(adev)) {
-+		smu_feature_list_clear_bit(smu, SMU_FEATURE_LIST_ALLOWED, FEATURE_GFXOFF_BIT);
-+		smu_feature_list_clear_bit(smu, SMU_FEATURE_LIST_ALLOWED, FEATURE_BACO_BIT);
++		uint64_t disable_mask = imac20_smu_disable_low |
++					((uint64_t)imac20_smu_disable_high << 32);
++		uint32_t final_mask[2] = { 0 };
++		int bit;
++
++		for (bit = 0; bit < SMU_FEATURE_COUNT; bit++) {
++			if (disable_mask & BIT_ULL(bit))
++				smu_feature_list_clear_bit(smu,
++							   SMU_FEATURE_LIST_ALLOWED,
++							   bit);
++		}
++
++		smu_feature_bits_to_arr32(
++			&smu->smu_feature.bits[SMU_FEATURE_LIST_ALLOWED],
++			final_mask, SMU_FEATURE_NUM_DEFAULT);
 +		dev_info(adev->dev,
-+			 "iMac20 SMU quirk: disabled GFXOFF/BACO before EnableAllSmuFeatures\n");
++			 "iMac20 SMU quirk: disable_low=0x%08x disable_high=0x%08x final_allowed_low=0x%08x final_allowed_high=0x%08x\n",
++			 imac20_smu_disable_low, imac20_smu_disable_high,
++			 final_mask[0], final_mask[1]);
 +	}
 +
  	return 0;

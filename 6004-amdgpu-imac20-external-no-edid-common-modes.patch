@@ -1,0 +1,46 @@
+--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
++++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
+@@ -78,6 +78,7 @@
+ #include <linux/power_supply.h>
+ #include <linux/firmware.h>
+ #include <linux/component.h>
++#include <linux/dmi.h>
+ #include <linux/sort.h>
+ 
+ #include <drm/drm_privacy_screen_consumer.h>
+@@ -152,6 +153,13 @@
+ #define FIRMWARE_DCN_401_DMUB "amdgpu/dcn_4_0_1_dmcub.bin"
+ MODULE_FIRMWARE(FIRMWARE_DCN_401_DMUB);
+ 
++static bool amdgpu_dm_is_imac20(void)
++{
++	return dmi_match(DMI_SYS_VENDOR, "Apple Inc.") &&
++	       (dmi_match(DMI_PRODUCT_NAME, "iMac20,1") ||
++		dmi_match(DMI_PRODUCT_NAME, "iMac20,2"));
++}
++
+ /**
+  * DOC: overview
+  *
+@@ -8922,6 +8930,21 @@
+		amdgpu_dm_connector->num_modes +=
+				drm_add_modes_noedid(connector, 1920, 1080);
+ 
++		if (amdgpu_dm_is_imac20() &&
++		    !dc_link->is_internal_display &&
++		    (dc_link->connector_signal == SIGNAL_TYPE_DISPLAY_PORT ||
++		     dc_link->connector_signal == SIGNAL_TYPE_DISPLAY_PORT_MST ||
++		     dc_link->connector_signal == SIGNAL_TYPE_HDMI_TYPE_A)) {
++			drm_info(connector->dev,
++				 "%s: iMac20 external no-EDID fallback: adding common modes for Thunderbolt/DP path\n",
++				 connector->name);
++			for (int i = 0; i < ARRAY_SIZE(common_modes); i++)
++				amdgpu_dm_connector->num_modes +=
++					drm_add_modes_noedid(connector,
++							     common_modes[i].w,
++							     common_modes[i].h);
++		}
++
+ 		if (amdgpu_dm_connector->dc_sink &&
+ 		    amdgpu_dm_connector->dc_sink->edid_caps.analog &&
+ 		    dc_connector_supports_analog(dc_link->link_id.id)) {

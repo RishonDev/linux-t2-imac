@@ -1,0 +1,74 @@
+--- a/drivers/gpu/drm/amd/display/dc/link/protocols/link_edp_panel_control.c
++++ b/drivers/gpu/drm/amd/display/dc/link/protocols/link_edp_panel_control.c
+@@ -40,9 +40,38 @@
+ #include "resource.h"
+ #include "link_dp_panel_replay.h"
++#include <linux/dmi.h>
++#include <linux/moduleparam.h>
+ #define DC_LOGGER \
+ 	link->ctx->logger
+ #define DC_LOGGER_INIT(logger)
+ 
++bool imac20_5k_experimental_dp1;
++module_param_named(imac20_5k_experimental_dp1,
++		   imac20_5k_experimental_dp1, bool, 0444);
++MODULE_PARM_DESC(imac20_5k_experimental_dp1,
++		 "Experimental iMac20 5K APPAE32/DP-1 wake probe and panel-mode forcing");
++
++static bool is_apple_imac20_5k(void)
++{
++	return dmi_match(DMI_SYS_VENDOR, "Apple Inc.") &&
++		(dmi_match(DMI_PRODUCT_NAME, "iMac20,1") ||
++		 dmi_match(DMI_PRODUCT_NAME, "iMac20,2"));
++}
++
++static bool is_imac20_5k_panel_link(struct dc_link *link)
++{
++	return is_apple_imac20_5k() &&
++	       (link->link_index == 0 && link->link_id.id == 20);
++}
++
++static bool is_imac20_5k_experimental_dp1_link(struct dc_link *link)
++{
++	return imac20_5k_experimental_dp1 &&
++	       is_apple_imac20_5k() &&
++	       link->link_index == 1 &&
++	       link->link_id.id == 19;
++}
++
+ #define DP_SINK_PR_ENABLE_AND_CONFIGURATION		0x37B
+ 
+ /* Travis */
+@@ -65,6 +94,14 @@
+ 
+ 	memset(&edp_config_set, '\0', sizeof(union dpcd_edp_config));
+ 
++	if ((is_imac20_5k_panel_link(link) ||
++	     is_imac20_5k_experimental_dp1_link(link)) &&
++	    panel_mode == DP_PANEL_MODE_DEFAULT) {
++		DC_LOG_INFO("link=%d iMac20 5K: suppressing panel_mode DEFAULT write, keeping EDP\n",
++			    link->link_index);
++		panel_mode = DP_PANEL_MODE_EDP;
++	}
++
+ 	switch (panel_mode) {
+ 	case DP_PANEL_MODE_EDP:
+ 	case DP_PANEL_MODE_SPECIAL:
+@@ -138,6 +175,18 @@ void dp_set_panel_mode(struct dc_link *link, enum dp_panel_mode panel_mode)
+ enum dp_panel_mode dp_get_panel_mode(struct dc_link *link)
+ {
++	/* iMac 2020 5K: write DPCD 0x10A = EDP immediately at link-detect
++	 * time (~T+8.2s, before T2's internal ready signal ~T+9.96s), so
++	 * T2 has seen EDP mode before it decides APPAE31 vs APPAE32.
++	 * dp_set_panel_mode() is called again at stream-enable to train with
++	 * EDP scrambler; when the experimental DP-1 probe is enabled, do
++	 * the same for the second SST candidate while probing APPAE32. */
++	if (is_imac20_5k_panel_link(link) ||
++	    is_imac20_5k_experimental_dp1_link(link)) {
++		dp_set_panel_mode(link, DP_PANEL_MODE_EDP);
++		return DP_PANEL_MODE_EDP;
++	}
++
+ 	if (link->ext_enc_id.id) {
+ 
+ 		switch (link->dpcd_caps.branch_dev_id) {

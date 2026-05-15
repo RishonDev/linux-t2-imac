@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd /home/rishon/linux-7.0 && git show *)",
+      "Bash(cd /home/rishon/linux-7.0 && git diff *)",
+      "Bash(cd /home/rishon/linux-7.0 && git log *)",
+      "Bash(cd /home/rishon/linux-7.0 && git status *)"
+    ]
+  }
+}

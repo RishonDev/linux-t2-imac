@@ -1,0 +1,17 @@
+--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
++++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
+@@ -9068,6 +9068,14 @@
+ 	aconnector->base.state->max_bpc = 16;
+ 	aconnector->base.state->max_requested_bpc = aconnector->base.state->max_bpc;
+
++	/* iMac 2020 5K eDP: Windows Boot Camp driver uses 8 bpc; cap here to
++	 * match and avoid the 16->10->8 bpc negotiation loop on every modeset. */
++	if (amdgpu_dm_is_imac20() &&
++	    connector_type == DRM_MODE_CONNECTOR_eDP) {
++		aconnector->base.state->max_bpc = 8;
++		aconnector->base.state->max_requested_bpc = 8;
++	}
++
+ 	if (connector_type == DRM_MODE_CONNECTOR_HDMIA) {
+ 		/* Content Type is currently only implemented for HDMI. */
+ 		drm_connector_attach_content_type_property(&aconnector->base);

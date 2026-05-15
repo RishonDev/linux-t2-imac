@@ -1,0 +1,89 @@
+diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_mst_types.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_mst_types.c
+index 9dc03c8..8ec391b 100644
+--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_mst_types.c
++++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_mst_types.c
+@@ -25,6 +25,7 @@
+  */
+ 
+ #include <linux/vmalloc.h>
++#include <linux/dmi.h>
+ #include <drm/display/drm_dp_helper.h>
+ #include <drm/display/drm_dp_mst_helper.h>
+ #include <drm/drm_atomic.h>
+@@ -44,6 +45,7 @@
+ 
+ #include "ddc_service_types.h"
+ #include "dpcd_defs.h"
++#include "gpio.h"
+ 
+ #include "dmub_cmd.h"
+ #if defined(CONFIG_DEBUG_FS)
+@@ -53,6 +55,13 @@
+ 
+ #define PEAK_FACTOR_X1000 1006
+ 
++static bool is_apple_imac20_5k_aux_trace(void)
++{
++	return dmi_match(DMI_SYS_VENDOR, "Apple Inc.") &&
++		(dmi_match(DMI_PRODUCT_NAME, "iMac20,1") ||
++		 dmi_match(DMI_PRODUCT_NAME, "iMac20,2"));
++}
++
+ /*
+  * This function handles both native AUX and I2C-Over-AUX transactions.
+  */
+@@ -64,6 +72,10 @@ static ssize_t dm_dp_aux_transfer(struct drm_dp_aux *aux,
+ 	struct amdgpu_device *adev;
+ 	struct ddc_service *ddc;
+ 	uint8_t copy[16];
++	struct dc_link *link;
++	bool imac20_aux_trace;
++	bool hpd_sensed;
++	int ddc_pin_en;
+ 
+ 	if (WARN_ON(msg->size > 16))
+ 		return -E2BIG;
+@@ -87,16 +99,41 @@ static ssize_t dm_dp_aux_transfer(struct drm_dp_aux *aux,
+ 		payload.data = copy;
+ 	}
+ 
++	ddc = TO_DM_AUX(aux)->ddc_service;
++	adev = ddc->ctx->driver_context;
++	link = ddc->link;
++	ddc_pin_en = ddc->ddc_pin && ddc->ddc_pin->pin_data ?
++		ddc->ddc_pin->pin_data->en : -1;
++	imac20_aux_trace = is_apple_imac20_5k_aux_trace() &&
++		link && link->link_index <= 3;
++	hpd_sensed = imac20_aux_trace && link->link_enc ?
++		link->link_enc->funcs->get_hpd_state(link->link_enc) : false;
++
+ 	result = dc_link_aux_transfer_raw(TO_DM_AUX(aux)->ddc_service, &payload,
+ 				      &operation_result);
+ 
++	if (imac20_aux_trace)
++		drm_info(adev_to_drm(adev),
++			 "iMac20 5K AUX xfer: aux=%s link=%u link_id=%u enum=%u signal=%d internal=%d ddc_hw_inst=%u ddc_channel=%u ddc_pin_en=%d hpd_src=%u cached_hpd=%d sensed_hpd=%d hpd_pending=%d aux_disabled=%d link_enc_hw_inst=%u dmub=%d req=0x%x native=%d write=%d mot=%d addr=0x%05x size=%zu result=%zd op=%d reply=0x%02x data=%*ph\n",
++			 aux->name ?: "?", link->link_index, link->link_id.id,
++			 link->link_id.enum_id, link->connector_signal,
++			 link->is_internal_display, link->ddc_hw_inst,
++			 ddc->ddc_pin ? ddc->ddc_pin->hw_info.ddc_channel : 0,
++			 ddc_pin_en, link->hpd_src, link->hpd_status, hpd_sensed,
++			 link->is_hpd_pending, link->aux_access_disabled,
++			 link->link_enc_hw_inst,
++			 ddc->ctx->dc->debug.enable_dmub_aux_for_legacy_ddc ||
++			 !ddc->ddc_pin, msg->request,
++			 !payload.i2c_over_aux, payload.write, payload.mot,
++			 payload.address, msg->size, result, operation_result,
++			 payload.reply ? payload.reply[0] : 0,
++			 (int)msg->size, payload.data);
++
+ 	/*
+ 	 * w/a on certain intel platform where hpd is unexpected to pull low during
+ 	 * 1st sideband message transaction by return AUX_RET_ERROR_HPD_DISCON
+ 	 * aux transaction is succuess in such case, therefore bypass the error
+ 	 */
+-	ddc = TO_DM_AUX(aux)->ddc_service;
+-	adev = ddc->ctx->driver_context;
+ 	if (adev->dm.aux_hpd_discon_quirk) {
+ 		if (msg->address == DP_SIDEBAND_MSG_DOWN_REQ_BASE &&
+ 			operation_result == AUX_RET_ERROR_HPD_DISCON) {

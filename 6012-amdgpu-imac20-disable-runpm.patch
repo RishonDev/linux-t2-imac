@@ -1,0 +1,30 @@
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
+@@ -29,6 +29,7 @@
+ #include <linux/aperture.h>
+ #include <linux/power_supply.h>
+ #include <linux/kthread.h>
++#include <linux/dmi.h>
+ #include <linux/module.h>
+ #include <linux/console.h>
+ #include <linux/slab.h>
+@@ -676,4 +677,19 @@ no_runtime_pm:
+ 	if (adev->pm.rpm_mode == AMDGPU_RUNPM_NONE)
+ 		dev_info(adev->dev, "Runtime PM not available\n");
++
++	/*
++	 * iMac20,1 / iMac20,2: the Navi14 GPU is behind Apple's T2 bridge
++	 * which does not support BACO wake-up.  Force runtime PM off to
++	 * prevent the GPU entering a power state it cannot recover from on
++	 * resume.
++	 */
++	if (adev->pm.rpm_mode != AMDGPU_RUNPM_NONE &&
++	    dmi_match(DMI_SYS_VENDOR, "Apple Inc.") &&
++	    (dmi_match(DMI_PRODUCT_NAME, "iMac20,1") ||
++	     dmi_match(DMI_PRODUCT_NAME, "iMac20,2"))) {
++		adev->pm.rpm_mode = AMDGPU_RUNPM_NONE;
++		dev_info(adev->dev,
++			 "iMac20: runtime PM disabled (T2 BACO wake-up workaround)\n");
++	}
+ }

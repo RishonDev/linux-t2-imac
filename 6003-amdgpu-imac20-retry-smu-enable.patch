@@ -1,0 +1,63 @@
+diff --git a/drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c b/drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c
+index 83ebfd5bf..d98d067fd 100644
+--- a/drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c
++++ b/drivers/gpu/drm/amd/pm/swsmu/smu11/smu_v11_0.c
+@@ -24,6 +24,7 @@
+ #include <linux/module.h>
+ #include <linux/pci.h>
+ #include <linux/reboot.h>
++#include <linux/dmi.h>
+ 
+ #define SMU_11_0_PARTIAL_PPTABLE
+ #define SWSMU_CODE_LAYER_L3
+@@ -774,8 +775,48 @@
+ int smu_v11_0_system_features_control(struct smu_context *smu,
+ 					     bool en)
+ {
+-	return smu_cmn_send_smc_msg(smu, (en ? SMU_MSG_EnableAllSmuFeatures :
+-					  SMU_MSG_DisableAllSmuFeatures), NULL);
++	struct amdgpu_device *adev = smu->adev;
++	struct smu_msg_ctl *ctl = &smu->msg_ctl;
++	enum smu_message_type msg = en ? SMU_MSG_EnableAllSmuFeatures :
++					 SMU_MSG_DisableAllSmuFeatures;
++	struct smu_msg_args args = {
++		.msg = msg,
++		.args[0] = 0,
++		.num_args = 1,
++		.num_out_args = 0,
++		.flags = 0,
++		.timeout = 10000000,
++	};
++	bool imac20 = dmi_match(DMI_SYS_VENDOR, "Apple Inc.") &&
++		      (dmi_match(DMI_PRODUCT_NAME, "iMac20,1") ||
++		       dmi_match(DMI_PRODUCT_NAME, "iMac20,2"));
++	int ret;
++	int i;
++
++	dev_info(adev->dev, "SMU system features control: %s\n",
++		 en ? "enable" : "disable");
++
++	if (imac20 && en) {
++		for (i = 0; i < 3; i++) {
++			ret = ctl->ops->send_msg(ctl, &args);
++			if (!ret)
++				break;
++
++			dev_warn(adev->dev,
++				 "iMac20 SMU quirk: EnableAllSmuFeatures attempt %d failed ret=%d\n",
++				 i + 1, ret);
++			msleep(100);
++		}
++	} else {
++		ret = smu_cmn_send_smc_msg(smu, msg, NULL);
++	}
++
++	if (ret)
++		dev_err(adev->dev,
++			"SMU system features control failed: %s ret=%d\n",
++			en ? "enable" : "disable", ret);
++
++	return ret;
+ }
+ 
+ int smu_v11_0_notify_display_change(struct smu_context *smu)
